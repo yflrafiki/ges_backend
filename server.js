@@ -12,6 +12,8 @@ const teacherRoutes = require('./src/routes/teacherRoutes');
 const transferRoutes = require('./src/routes/transferRoutes');
 const promotionRoutes = require('./src/routes/promotionRoutes');
 const documentRoutes = require('./src/routes/documentRoutes');
+const credentialRoutes = require('./src/routes/credentialRoutes');
+const reportRoutes = require('./src/routes/reportRoutes');
 
 const app = express();
 
@@ -28,6 +30,8 @@ app.use('/api/teachers', teacherRoutes);
 app.use('/api/transfers', transferRoutes);
 app.use('/api/promotions', promotionRoutes);
 app.use('/api/documents', documentRoutes);
+app.use('/api/credentials', credentialRoutes);
+app.use('/api/reports', reportRoutes);
 
 // Test route
 app.get('/', (req, res) => {
