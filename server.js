@@ -14,6 +14,7 @@ const promotionRoutes = require('./src/routes/promotionRoutes');
 const documentRoutes = require('./src/routes/documentRoutes');
 const credentialRoutes = require('./src/routes/credentialRoutes');
 const reportRoutes = require('./src/routes/reportRoutes');
+const examRoutes = require('./src/routes/examRoutes');
 
 const app = express();
 
@@ -32,6 +33,7 @@ app.use('/api/promotions', promotionRoutes);
 app.use('/api/documents', documentRoutes);
 app.use('/api/credentials', credentialRoutes);
 app.use('/api/reports', reportRoutes);
+app.use('/api/exams', examRoutes);
 
 // Test route
 app.get('/', (req, res) => {
