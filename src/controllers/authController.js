@@ -27,6 +27,12 @@ const register = async (req, res) => {
     return res.status(400).json({ message: 'Role is required' });
   }
 
+  // Validate role
+  const allowedRoles = ['teacher', 'hr_officer', 'admin', 'examiner'];
+  if (!allowedRoles.includes(role)) {
+    return res.status(400).json({ message: 'Invalid role' });
+  }
+
   if (role === 'teacher' && (!staff_id || !first_name || !last_name)) {
     return res.status(400).json({ message: 'staff_id, first_name and last_name are required for teachers' });
   }
