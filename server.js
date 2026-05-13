@@ -15,11 +15,12 @@ const documentRoutes = require('./src/routes/documentRoutes');
 const credentialRoutes = require('./src/routes/credentialRoutes');
 const reportRoutes = require('./src/routes/reportRoutes');
 const examRoutes = require('./src/routes/examRoutes');
+const path = require('path')
 
 const app = express();
 
 // Middleware
-app.use(helmet());
+app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
 app.use(cors());
 app.use(morgan('dev'));
 app.use(express.json());
@@ -34,6 +35,7 @@ app.use('/api/documents', documentRoutes);
 app.use('/api/credentials', credentialRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/exams', examRoutes);
+app.use('/uploads', express.static(path.join(__dirname, 'src/uploads')));
 
 // Test route
 app.get('/', (req, res) => {

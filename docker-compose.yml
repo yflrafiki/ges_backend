@@ -1,7 +1,6 @@
 version: '3.8'
 
 services:
-  # PostgreSQL Database
   postgres:
     image: postgres:16-alpine
     container_name: ges_postgres
@@ -18,7 +17,6 @@ services:
     networks:
       - ges_network
 
-  # Node.js Backend
   backend:
     build: .
     container_name: ges_backend
@@ -36,9 +34,29 @@ services:
       JWT_SECRET: ges_super_secret_jwt_key_2026
       JWT_EXPIRES_IN: 7d
     volumes:
-      - ./src/uploads:/app/src/uploads
+      - uploads_data:/app/src/uploads
     depends_on:
       - postgres
+    networks:
+      - ges_network
+
+  ges-teacher:
+    build:
+      context: ../finalyear/ges-teacher
+    container_name: ges_teacher
+    restart: always
+    ports:
+      - "5173:80"
+    networks:
+      - ges_network
+
+  ges-hr-admin:
+    build:
+      context: ../finalyear/ges-hr-admin
+    container_name: ges_hr_admin
+    restart: always
+    ports:
+      - "5174:80"
     networks:
       - ges_network
 
@@ -48,3 +66,4 @@ networks:
 
 volumes:
   postgres_data:
+  uploads_data:

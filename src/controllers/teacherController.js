@@ -16,7 +16,11 @@ const getMyProfile = async (req, res) => {
     if (result.rows.length === 0) {
       return res.status(404).json({ message: 'Teacher profile not found' });
     }
-    res.json(result.rows[0]);
+    const teacher = result.rows[0];
+    if (teacher.passport_photo) {
+      teacher.passport_photo = teacher.passport_photo.replace(/^\//, '');
+    }
+    res.json(teacher);
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Server error', error: err.message });
@@ -67,7 +71,7 @@ const updateMyProfile = async (req, res) => {
     // Handle passport photo upload
     let passport_photo = teacher.passport_photo;
     if (req.file) {
-      passport_photo = req.file.path;
+      passport_photo = `uploads/${req.file.filename}`;
     }
 
     const updated = await pool.query(

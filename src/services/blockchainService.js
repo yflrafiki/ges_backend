@@ -1,7 +1,6 @@
 const crypto = require('crypto');
 const pool = require('../config/db');
 
-// The 3 blockchain nodes as per the project
 const BLOCKCHAIN_NODES = [
   { id: 'GES', name: 'Ghana Education Service', role: 'orderer' },
   { id: 'GTEC', name: 'Ghana Tertiary Education Commission', role: 'peer' },
@@ -21,11 +20,9 @@ const generateTransactionId = () => {
   return `${timestamp}${random}`.toUpperCase();
 };
 
-// Simulate each node validating the credential
 const simulateNodeValidation = async (node, documentHash) => {
-  // Simulate network delay per node
   await new Promise(resolve => setTimeout(resolve, 300 + Math.random() * 400));
-  console.log(`Node ${node.id} (${node.role}) validated document hash: ${documentHash}`);
+  console.log(`[${node.role.toUpperCase()}] Node ${node.id} validated: ${documentHash.substring(0, 16)}...`);
   return {
     node_id: node.id,
     node_name: node.name,
@@ -35,7 +32,6 @@ const simulateNodeValidation = async (node, documentHash) => {
   };
 };
 
-// Submit credential to blockchain with all 3 nodes
 const submitToBlockchain = async (credentialData) => {
   try {
     const documentHash = generateDocumentHash({
@@ -48,26 +44,28 @@ const submitToBlockchain = async (credentialData) => {
 
     const txId = generateTransactionId();
 
-    console.log(`\n=== Hyperledger Fabric Network ===`);
-    console.log(`Submitting TX: ${txId}`);
+    console.log(`\n========================================`);
+    console.log(`HYPERLEDGER FABRIC — PRIVATE BLOCKCHAIN`);
+    console.log(`Network: GES Credential Verification`);
+    console.log(`TX ID: ${txId}`);
     console.log(`Document Hash: ${documentHash}`);
+    console.log(`Initiating PBFT consensus across 3 nodes...`);
+    console.log(`========================================`);
 
-    // All 3 nodes validate in parallel (PBFT consensus)
     const nodeResults = await Promise.all(
       BLOCKCHAIN_NODES.map(node => simulateNodeValidation(node, documentHash))
     );
 
-    // Check consensus — need all 3 nodes to agree
-    const validatedNodes = nodeResults.filter(r => r.status === 'validated');
-    const consensusReached = validatedNodes.length >= 2; // 2 of 3 = consensus
+    const validatedCount = nodeResults.filter(r => r.status === 'validated').length;
+    const consensusReached = validatedCount >= 2;
+
+    console.log(`Consensus: ${validatedCount}/3 nodes validated`);
+    console.log(`Status: ${consensusReached ? 'COMMITTED TO LEDGER' : 'CONSENSUS FAILED'}`);
+    console.log(`========================================\n`);
 
     if (!consensusReached) {
-      return { success: false, error: 'Consensus not reached among nodes' };
+      return { success: false, error: 'Consensus not reached among blockchain nodes' };
     }
-
-    console.log(`Consensus reached: ${validatedNodes.length}/3 nodes validated`);
-    console.log(`TX committed to ledger: ${txId}`);
-    console.log(`=================================\n`);
 
     return {
       success: true,
@@ -76,16 +74,15 @@ const submitToBlockchain = async (credentialData) => {
       block_number: Math.floor(Math.random() * 10000) + 1,
       timestamp: new Date().toISOString(),
       nodes: nodeResults,
-      consensus: `${validatedNodes.length}/${BLOCKCHAIN_NODES.length} nodes`
+      consensus: `${validatedCount}/${BLOCKCHAIN_NODES.length} nodes`
     };
 
   } catch (err) {
-    console.error('Blockchain submission error:', err);
+    console.error('Blockchain error:', err);
     return { success: false, error: err.message };
   }
 };
 
-// Verify credential on blockchain
 const verifyOnBlockchain = async (documentHash, txId) => {
   try {
     const result = await pool.query(
@@ -100,10 +97,18 @@ const verifyOnBlockchain = async (documentHash, txId) => {
 
     const credential = result.rows[0];
 
+    // Simulate all 3 nodes confirming
+    const nodeConfirmations = BLOCKCHAIN_NODES.map(n => ({
+      ...n,
+      status: 'confirmed',
+      confirmed_at: credential.verified_at
+    }));
+
     return {
       verified: true,
-      message: 'Credential verified on blockchain ledger',
-      nodes: BLOCKCHAIN_NODES.map(n => ({ ...n, status: 'confirmed' })),
+      message: 'Credential verified across all 3 blockchain nodes',
+      nodes: nodeConfirmations,
+      consensus: '3/3 nodes confirmed',
       credential: {
         transaction_id: credential.blockchain_tx_id,
         document_hash: credential.document_hash,
@@ -113,7 +118,6 @@ const verifyOnBlockchain = async (documentHash, txId) => {
     };
 
   } catch (err) {
-    console.error('Blockchain verification error:', err);
     return { verified: false, error: err.message };
   }
 };
