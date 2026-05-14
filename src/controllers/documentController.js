@@ -3,6 +3,11 @@ const path = require('path');
 const fs = require('fs');
 const { extractTextFromFile, parseDocumentFields } = require('../services/ocrService');
 
+const isOCREligible = (filePath) => {
+  const ext = path.extname(filePath).toLowerCase();
+  return ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.pdf'].includes(ext);
+};
+
 // @route  POST /api/documents/upload
 // @access Teacher only
 const uploadDocument = async (req, res) => {
@@ -66,6 +71,15 @@ const uploadDocument = async (req, res) => {
 // Background OCR processing
 const processOCR = async (documentId, filePath) => {
   try {
+    if (!isOCREligible(filePath)) {
+      console.log(`Skipping OCR for unsupported file type: ${filePath}`);
+      await pool.query(
+        `UPDATE documents SET ocr_status = 'failed' WHERE id = $1`,
+        [documentId]
+      );
+      return;
+    }
+
     const ocrResult = await extractTextFromFile(filePath);
 
     if (ocrResult.success) {

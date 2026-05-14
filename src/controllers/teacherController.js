@@ -32,7 +32,7 @@ const getMyProfile = async (req, res) => {
 const updateMyProfile = async (req, res) => {
   const {
     phone, gender, subject_specialization, qualification,
-    title, marital_status, nationality, hometown,
+    title, marital_status, nationality, hometown, date_of_birth,
     national_date_of_present_rank, years_in_current_rank,
     disability_status, disability_type
   } = req.body;
@@ -52,7 +52,7 @@ const updateMyProfile = async (req, res) => {
     // Track changes
     const fields = {
       phone, gender, subject_specialization, qualification,
-      title, marital_status, nationality, hometown,
+      title, marital_status, nationality, hometown, date_of_birth,
       national_date_of_present_rank, years_in_current_rank,
       disability_status, disability_type
     };
@@ -84,17 +84,18 @@ const updateMyProfile = async (req, res) => {
         marital_status = COALESCE($6, marital_status),
         nationality = COALESCE($7, nationality),
         hometown = COALESCE($8, hometown),
-        national_date_of_present_rank = COALESCE($9, national_date_of_present_rank),
-        years_in_current_rank = COALESCE($10, years_in_current_rank),
-        disability_status = COALESCE($11, disability_status),
-        disability_type = COALESCE($12, disability_type),
-        passport_photo = COALESCE($13, passport_photo),
+        date_of_birth = COALESCE($9, date_of_birth),
+        national_date_of_present_rank = COALESCE($10, national_date_of_present_rank),
+        years_in_current_rank = COALESCE($11, years_in_current_rank),
+        disability_status = COALESCE($12, disability_status),
+        disability_type = COALESCE($13, disability_type),
+        passport_photo = COALESCE($14, passport_photo),
         updated_at = NOW()
-       WHERE user_id = $14
+       WHERE user_id = $15
        RETURNING *`,
       [
         phone, gender, subject_specialization, qualification,
-        title, marital_status, nationality, hometown,
+        title, marital_status, nationality, hometown, date_of_birth || null,
         national_date_of_present_rank, years_in_current_rank,
         disability_status, disability_type,
         passport_photo, req.user.id

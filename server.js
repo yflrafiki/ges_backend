@@ -5,6 +5,7 @@ const express = require('express');
 const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
+const multer = require('multer');
 require('dotenv').config();
 
 const authRoutes = require('./src/routes/authRoutes');
@@ -50,6 +51,14 @@ app.use((req, res) => {
 // Global error handler
 app.use((err, req, res, next) => {
   console.error(err.stack);
+  if (err instanceof multer.MulterError) {
+    return res.status(400).json({ message: err.message });
+  }
+
+  if (err.message && err.message.includes('File type not allowed')) {
+    return res.status(415).json({ message: err.message });
+  }
+
   res.status(500).json({ message: 'Something went wrong', error: err.message });
 });
 
