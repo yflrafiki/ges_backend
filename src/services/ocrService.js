@@ -140,12 +140,19 @@ const parseDocumentFields = (text) => {
     /(?:STUDENT|EMPLOYEE|STAFF)\s+(?:NAME)?[:\s]+([A-Z][A-Z\s]{2,30})/i,
   ];
   for (const pattern of namePatterns) {
-    const match = text.match(pattern);
-    if (match && match[1].trim().length > 2) {
-      fields.name = match[1].trim();
+  const match = text.match(pattern);
+  if (match && match[1].trim().length > 2) {
+    // Clean name — remove newlines and extra spaces, take only first line
+    const cleanName = match[1]
+      .split(/[\n\r]/)[0]  // take only first line
+      .trim()
+      .replace(/\s+/g, ' '); // normalize spaces
+    if (cleanName.length > 2) {
+      fields.name = cleanName;
       break;
     }
   }
+}
 
   // Staff ID patterns
   const idPatterns = [
