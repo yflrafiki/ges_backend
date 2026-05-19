@@ -1,7 +1,9 @@
 const pool = require('../config/db');
 const {
   submitToBlockchain,
-  verifyOnBlockchain
+  verifyOnBlockchain,
+  generateDocumentHash,
+  BLOCKCHAIN_NODES
 } = require('../services/blockchainService');
 
 // @route  POST /api/credentials/verify/:documentId
@@ -10,7 +12,6 @@ const submitForVerification = async (req, res) => {
   try {
     const { documentId } = req.params;
 
-    // Get document
     const docResult = await pool.query(
       'SELECT * FROM documents WHERE id = $1',
       [documentId]
@@ -22,7 +23,6 @@ const submitForVerification = async (req, res) => {
 
     const document = docResult.rows[0];
 
-    // Get teacher
     const teacherResult = await pool.query(
       'SELECT id FROM teachers WHERE user_id = $1',
       [req.user.id]
@@ -32,19 +32,16 @@ const submitForVerification = async (req, res) => {
       return res.status(404).json({ message: 'Teacher profile not found' });
     }
 
-    // Make sure document belongs to this teacher
     if (document.teacher_id !== teacherResult.rows[0].id) {
       return res.status(403).json({ message: 'Not authorized to verify this document' });
     }
 
-    // Check OCR is completed
     if (document.ocr_status !== 'completed') {
       return res.status(400).json({
-        message: `Document OCR status is '${document.ocr_status}'. OCR must be completed before verification.`
+        message: `OCR status is '${document.ocr_status}'. OCR must complete before verification.`
       });
     }
 
-    // Check if already verified
     const existing = await pool.query(
       `SELECT * FROM credentials 
        WHERE document_id = $1 AND verification_status = 'verified'`,
@@ -53,19 +50,20 @@ const submitForVerification = async (req, res) => {
 
     if (existing.rows.length > 0) {
       return res.status(400).json({
-        message: 'Document is already verified on the blockchain',
+        message: 'Document already verified on blockchain',
         credential: existing.rows[0]
       });
     }
 
-    // Respond immediately then process in background
+    // Respond immediately
     res.json({
-      message: 'Credential submitted to blockchain. Verification in progress.',
+      message: 'Submitted to blockchain. Verification in progress.',
       document_id: documentId,
-      status: 'processing'
+      status: 'processing',
+      nodes: BLOCKCHAIN_NODES.map(n => ({ ...n, status: 'pending' }))
     });
 
-    // Process blockchain in background
+    // Process in background
     processBlockchainVerification(document, teacherResult.rows[0].id, req.user.id);
 
   } catch (err) {
@@ -74,21 +72,26 @@ const submitForVerification = async (req, res) => {
   }
 };
 
-// Background blockchain processing
+// Background blockchain processing — Flow 1 (Anchoring)
 const processBlockchainVerification = async (document, teacher_id, user_id) => {
   try {
-    console.log(`Processing blockchain verification for document ${document.id}`);
+    console.log(`\nStarting blockchain anchoring for document: ${document.id}`);
+
+    // Generate hash from OCR text (the actual content)
+    const documentHash = generateDocumentHash(
+      document.ocr_extracted_text || document.file_name
+    );
 
     const blockchainResult = await submitToBlockchain({
       teacher_id,
       document_id: document.id,
       file_name: document.file_name,
       ocr_text: document.ocr_extracted_text,
+      cert_type: 'qualification', // GTEC anchors qualifications
       timestamp: new Date().toISOString()
     });
 
     if (blockchainResult.success) {
-      // Save credential to database
       await pool.query(
         `INSERT INTO credentials
           (teacher_id, document_id, document_hash, blockchain_tx_id,
@@ -107,35 +110,28 @@ const processBlockchainVerification = async (document, teacher_id, user_id) => {
         ]
       );
 
-      // Audit log
       await pool.query(
-        `INSERT INTO audit_logs 
-          (user_id, action, entity, entity_id, details) 
+        `INSERT INTO audit_logs (user_id, action, entity, entity_id, details)
          VALUES ($1, $2, $3, $4, $5)`,
         [
           user_id,
-          'BLOCKCHAIN_VERIFY',
+          'BLOCKCHAIN_ANCHOR',
           'credentials',
           document.id,
-          `Document verified on blockchain. TX: ${blockchainResult.transaction_id}`
+          `Document anchored on blockchain. TX: ${blockchainResult.transaction_id}. Consensus: ${blockchainResult.consensus}`
         ]
       );
 
-      console.log(`Blockchain verification successful for document ${document.id}`);
-      console.log(`Transaction ID: ${blockchainResult.transaction_id}`);
+      console.log(`✓ Document ${document.id} anchored. TX: ${blockchainResult.transaction_id}`);
 
     } else {
-      // Mark as failed
       await pool.query(
-        `INSERT INTO credentials
-          (teacher_id, document_id, verification_status)
+        `INSERT INTO credentials (teacher_id, document_id, verification_status)
          VALUES ($1, $2, 'failed')
-         ON CONFLICT (document_id) DO UPDATE SET
-           verification_status = 'failed'`,
+         ON CONFLICT (document_id) DO UPDATE SET verification_status = 'failed'`,
         [teacher_id, document.id]
       );
-
-      console.log(`Blockchain verification failed for document ${document.id}`);
+      console.log(`✗ Blockchain anchoring failed for document ${document.id}`);
     }
 
   } catch (err) {
@@ -153,7 +149,7 @@ const getMyCredentials = async (req, res) => {
     );
 
     if (teacherResult.rows.length === 0) {
-      return res.status(404).json({ message: 'Teacher profile not found' });
+      return res.status(404).json({ message: 'Teacher not found' });
     }
 
     const result = await pool.query(
@@ -165,19 +161,15 @@ const getMyCredentials = async (req, res) => {
       [teacherResult.rows[0].id]
     );
 
-    res.json({
-      count: result.rows.length,
-      credentials: result.rows
-    });
+    res.json({ count: result.rows.length, credentials: result.rows });
 
   } catch (err) {
-    console.error(err);
     res.status(500).json({ message: 'Server error', error: err.message });
   }
 };
 
 // @route  GET /api/credentials/check/:txId
-// @access HR Officer, Admin
+// @access HR Officer, Admin — Flow 2 (Verification)
 const verifyCredentialByTxId = async (req, res) => {
   try {
     const result = await pool.query(
@@ -193,31 +185,33 @@ const verifyCredentialByTxId = async (req, res) => {
     if (result.rows.length === 0) {
       return res.status(404).json({
         verified: false,
+        result: 'not_found',
         message: 'No credential found with this transaction ID'
       });
     }
 
     const credential = result.rows[0];
 
-    // Verify hash on blockchain
+    // Run Flow 2 — full verification
     const verification = await verifyOnBlockchain(
       credential.document_hash,
-      credential.blockchain_tx_id
+      req.params.txId
     );
 
-    res.json({
-      verified: verification.verified,
-      message: verification.message,
-      credential: {
-        transaction_id: credential.blockchain_tx_id,
-        document_hash: credential.document_hash,
-        file_name: credential.file_name,
-        teacher: `${credential.first_name} ${credential.last_name}`,
-        staff_id: credential.staff_id,
-        verified_at: credential.verified_at,
-        status: credential.verification_status
-      }
-    });
+    // Log the verification attempt
+    await pool.query(
+      `INSERT INTO audit_logs (user_id, action, entity, entity_id, details)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [
+        req.user.id,
+        'BLOCKCHAIN_VERIFY',
+        'credentials',
+        credential.id,
+        `Verification result: ${verification.result}. TX: ${req.params.txId}`
+      ]
+    );
+
+    res.json(verification);
 
   } catch (err) {
     console.error(err);
@@ -238,20 +232,29 @@ const getTeacherCredentials = async (req, res) => {
       [req.params.teacherId]
     );
 
-    res.json({
-      count: result.rows.length,
-      credentials: result.rows
-    });
+    res.json({ count: result.rows.length, credentials: result.rows });
 
   } catch (err) {
-    console.error(err);
     res.status(500).json({ message: 'Server error', error: err.message });
   }
+};
+
+// @route  GET /api/credentials/nodes
+// @access HR Officer, Admin
+const getBlockchainNodes = async (req, res) => {
+  res.json({
+    network: 'Hyperledger Fabric (Private)',
+    channel: 'ges-channel',
+    chaincode: 'ges-verify',
+    consensus: 'PBFT',
+    nodes: BLOCKCHAIN_NODES
+  });
 };
 
 module.exports = {
   submitForVerification,
   getMyCredentials,
   verifyCredentialByTxId,
-  getTeacherCredentials
+  getTeacherCredentials,
+  getBlockchainNodes
 };

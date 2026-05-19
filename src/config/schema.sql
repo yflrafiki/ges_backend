@@ -64,6 +64,8 @@ CREATE TABLE IF NOT EXISTS documents (
   file_path VARCHAR(500),
   file_type VARCHAR(100),
   ocr_extracted_text TEXT,
+  ocr_validation TEXT,
+  document_hash VARCHAR(64),
   ocr_status VARCHAR(50) DEFAULT 'pending' CHECK (ocr_status IN ('pending', 'completed', 'failed')),
   uploaded_at TIMESTAMP DEFAULT NOW()
 );

@@ -1,4 +1,5 @@
 const pool = require('../config/db');
+const { recordPromotionDecision } = require('../services/blockchainService');
 
 // Eligibility rules
 const ELIGIBILITY_RULES = {
@@ -324,6 +325,20 @@ const reviewPromotion = async (req, res) => {
            WHERE id = $2`,
           [nextGrade, teacher.id]
         );
+
+        // Record promotion decision on blockchain
+        recordPromotionDecision({
+          application_id: req.params.id,
+          staff_id: teacher.staff_id || teacher.id,
+          from_grade: teacher.current_grade,
+          to_grade: nextGrade,
+          decision: 'approved',
+          decided_by: req.user.id
+        }).then(result => {
+          if (result.success) {
+            console.log(`Promotion recorded on blockchain. TX: ${result.transaction_id}`);
+          }
+        });
       }
     }
 

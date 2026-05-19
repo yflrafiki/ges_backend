@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   postgres:
     image: postgres:16-alpine
@@ -16,11 +14,16 @@ services:
       - ./src/config/schema.sql:/docker-entrypoint-initdb.d/schema.sql
     networks:
       - ges_network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
 
   backend:
     build: .
     container_name: ges_backend
-    restart: always
+    restart: on-failure
     ports:
       - "5000:5000"
     environment:
@@ -36,27 +39,8 @@ services:
     volumes:
       - uploads_data:/app/src/uploads
     depends_on:
-      - postgres
-    networks:
-      - ges_network
-
-  ges-teacher:
-    build:
-      context: ../finalyear/ges-teacher
-    container_name: ges_teacher
-    restart: always
-    ports:
-      - "5173:80"
-    networks:
-      - ges_network
-
-  ges-hr-admin:
-    build:
-      context: ../finalyear/ges-hr-admin
-    container_name: ges_hr_admin
-    restart: always
-    ports:
-      - "5174:80"
+      postgres:
+        condition: service_healthy
     networks:
       - ges_network
 

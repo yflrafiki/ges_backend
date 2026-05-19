@@ -9,13 +9,18 @@ const pool = new Pool({
   password: process.env.DB_PASSWORD,
 });
 
-pool.on('connect', () => {
-  console.log('Connected to PostgreSQL database');
+pool.connect((err, client, release) => {
+  if (err) {
+    console.error('Database connection error:', err.message);
+  } else {
+    console.log('Connected to PostgreSQL database');
+    console.log('Verified PostgreSQL connection');
+    release();
+  }
 });
 
 pool.on('error', (err) => {
-  console.error('Database error:', err);
-  process.exit(-1);
+  console.error('Unexpected database error:', err.message);
 });
 
 module.exports = pool;

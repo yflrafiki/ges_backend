@@ -1,11 +1,22 @@
 const pool = require('../config/db');
 const path = require('path');
 const fs = require('fs');
-const { extractTextFromFile, parseDocumentFields } = require('../services/ocrService');
+const crypto = require('crypto');
+const {
+  extractTextFromFile,
+  parseDocumentFields,
+  validateAgainstTeacherRecord
+} = require('../services/ocrService');
 
-const isOCREligible = (filePath) => {
-  const ext = path.extname(filePath).toLowerCase();
-  return ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.pdf'].includes(ext);
+// Generate SHA-256 hash of file
+const generateFileHash = (filePath) => {
+  return new Promise((resolve, reject) => {
+    const hash = crypto.createHash('sha256');
+    const stream = fs.createReadStream(filePath);
+    stream.on('data', (data) => hash.update(data));
+    stream.on('end', () => resolve(hash.digest('hex')));
+    stream.on('error', reject);
+  });
 };
 
 // @route  POST /api/documents/upload
@@ -30,37 +41,47 @@ const uploadDocument = async (req, res) => {
 
     const teacher_id = teacherResult.rows[0].id;
 
-    // Save document record as pending
+    // Generate hash of the uploaded file immediately
+    const fileHash = await generateFileHash(req.file.path);
+    console.log(`Document hash generated: ${fileHash}`);
+
+    // Save relative path
+    const relativePath = `uploads/${req.file.filename}`;
+
+    // Save document record
     const docResult = await pool.query(
       `INSERT INTO documents
-        (teacher_id, application_id, file_name, file_path, file_type, ocr_status)
-       VALUES ($1, $2, $3, $4, $5, 'pending')
+        (teacher_id, application_id, file_name, file_path, file_type,
+         ocr_status, document_hash)
+       VALUES ($1, $2, $3, $4, $5, 'pending', $6)
        RETURNING *`,
       [
         teacher_id,
         application_id || null,
         req.file.originalname,
-        req.file.path,
-        req.file.mimetype
+        relativePath,
+        req.file.mimetype,
+        fileHash
       ]
     );
 
     const document = docResult.rows[0];
 
-    // Run OCR in background
+    // Respond immediately
     res.status(201).json({
-      message: 'File uploaded successfully. OCR processing started.',
+      message: 'Document uploaded successfully. OCR processing started.',
       document: {
         id: document.id,
         file_name: document.file_name,
         file_type: document.file_type,
         ocr_status: document.ocr_status,
+        document_hash: document.document_hash,
         uploaded_at: document.uploaded_at
       }
     });
 
-    // Process OCR after response is sent
-    processOCR(document.id, req.file.path);
+    // Process OCR in background
+    processOCR(document.id, req.file.path, teacher_id);
 
   } catch (err) {
     console.error(err);
@@ -68,38 +89,60 @@ const uploadDocument = async (req, res) => {
   }
 };
 
-// Background OCR processing
-const processOCR = async (documentId, filePath) => {
+// Background OCR processing with validation
+const processOCR = async (documentId, filePath, teacherId) => {
   try {
-    if (!isOCREligible(filePath)) {
-      console.log(`Skipping OCR for unsupported file type: ${filePath}`);
-      await pool.query(
-        `UPDATE documents SET ocr_status = 'failed' WHERE id = $1`,
-        [documentId]
-      );
-      return;
-    }
+    console.log(`\n=== OCR Processing: Document ${documentId} ===`);
 
+    // Extract text
     const ocrResult = await extractTextFromFile(filePath);
 
-    if (ocrResult.success) {
+    if (ocrResult.success && ocrResult.text) {
+      // Parse key fields from extracted text
+      const parsedFields = parseDocumentFields(ocrResult.text);
+      console.log('Parsed fields:', parsedFields);
+
+      // Validate against teacher record in database
+      const validation = await validateAgainstTeacherRecord(teacherId, parsedFields);
+      console.log('Validation result:', validation);
+
+      // Build validation summary
+      const validationSummary = JSON.stringify({
+        nameMatch: validation.nameMatch,
+        staffIdMatch: validation.staffIdMatch,
+        details: validation.details,
+        parsedFields: {
+          name: parsedFields.name || null,
+          staffId: parsedFields.staffId || null,
+          institution: parsedFields.institution || null,
+          qualification: parsedFields.qualification || null,
+        }
+      });
+
+      // Update document with OCR results and validation
       await pool.query(
         `UPDATE documents SET
           ocr_extracted_text = $1,
-          ocr_status = 'completed'
-         WHERE id = $2`,
-        [ocrResult.text, documentId]
+          ocr_status = 'completed',
+          ocr_validation = $2
+         WHERE id = $3`,
+        [ocrResult.text, validationSummary, documentId]
       );
+
       console.log(`OCR completed for document ${documentId}`);
+      console.log(`Validation: ${validation.valid ? 'PASSED' : 'WARNING'}`);
+      validation.details.forEach(d => console.log(` ${d}`));
+
     } else {
       await pool.query(
         `UPDATE documents SET ocr_status = 'failed' WHERE id = $1`,
         [documentId]
       );
-      console.log(`OCR failed for document ${documentId}`);
+      console.log(`OCR failed for document ${documentId}: ${ocrResult.error}`);
     }
+
   } catch (err) {
-    console.error('Background OCR error:', err);
+    console.error('OCR processing error:', err);
     await pool.query(
       `UPDATE documents SET ocr_status = 'failed' WHERE id = $1`,
       [documentId]
@@ -121,18 +164,16 @@ const getMyDocuments = async (req, res) => {
     }
 
     const result = await pool.query(
-      `SELECT id, file_name, file_type, ocr_status, 
-        ocr_extracted_text, application_id, uploaded_at
+      `SELECT id, file_name, file_type, ocr_status,
+        ocr_extracted_text, ocr_validation, document_hash,
+        application_id, uploaded_at
        FROM documents
        WHERE teacher_id = $1
        ORDER BY uploaded_at DESC`,
       [teacherResult.rows[0].id]
     );
 
-    res.json({
-      count: result.rows.length,
-      documents: result.rows
-    });
+    res.json({ count: result.rows.length, documents: result.rows });
 
   } catch (err) {
     console.error(err);
@@ -158,27 +199,23 @@ const getDocumentById = async (req, res) => {
 
     const doc = result.rows[0];
 
-    // Teacher can only see their own documents
     if (req.user.role === 'teacher') {
       const teacher = await pool.query(
         'SELECT id FROM teachers WHERE user_id = $1',
         [req.user.id]
       );
       if (doc.teacher_id !== teacher.rows[0].id) {
-        return res.status(403).json({ message: 'Not authorized to view this document' });
+        return res.status(403).json({ message: 'Not authorized' });
       }
     }
 
-    // Parse OCR fields if text is available
-    let parsedFields = null;
-    if (doc.ocr_extracted_text) {
-      parsedFields = parseDocumentFields(doc.ocr_extracted_text);
+    // Parse validation JSON
+    let validation = null;
+    if (doc.ocr_validation) {
+      try { validation = JSON.parse(doc.ocr_validation); } catch (e) {}
     }
 
-    res.json({
-      document: doc,
-      parsed_fields: parsedFields
-    });
+    res.json({ document: doc, validation });
 
   } catch (err) {
     console.error(err);
@@ -192,17 +229,14 @@ const getTeacherDocuments = async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT id, file_name, file_type, ocr_status,
-        ocr_extracted_text, application_id, uploaded_at
+        ocr_extracted_text, ocr_validation, document_hash, uploaded_at
        FROM documents
        WHERE teacher_id = $1
        ORDER BY uploaded_at DESC`,
       [req.params.teacherId]
     );
 
-    res.json({
-      count: result.rows.length,
-      documents: result.rows
-    });
+    res.json({ count: result.rows.length, documents: result.rows });
 
   } catch (err) {
     console.error(err);
