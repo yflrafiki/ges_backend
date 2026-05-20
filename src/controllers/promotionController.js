@@ -1,5 +1,6 @@
 const pool = require('../config/db');
 const { recordPromotionDecision } = require('../services/blockchainService');
+const { validateAgainstTeacherRecord, parseDocumentFields, extractTextFromFile } = require('../services/ocrService');
 
 // Eligibility rules
 const ELIGIBILITY_RULES = {
@@ -360,11 +361,200 @@ const reviewPromotion = async (req, res) => {
   }
 };
 
+
+// @route  POST /api/promotions/:id/submit-document
+// @access Teacher — submit document for promotion
+const submitPromotionDocument = async (req, res) => {
+  const { document_id } = req.body;
+
+  if (!document_id) {
+    return res.status(400).json({ message: 'Document ID is required' });
+  }
+
+  try {
+    const teacherResult = await pool.query(
+      'SELECT * FROM teachers WHERE user_id = $1',
+      [req.user.id]
+    );
+
+    if (teacherResult.rows.length === 0) {
+      return res.status(404).json({ message: 'Teacher not found' });
+    }
+
+    const teacher = teacherResult.rows[0];
+
+    // Check application exists and belongs to teacher
+    const appResult = await pool.query(
+      `SELECT * FROM applications WHERE id = $1 AND teacher_id = $2 AND type = 'promotion'`,
+      [req.params.id, teacher.id]
+    );
+
+    if (appResult.rows.length === 0) {
+      return res.status(404).json({ message: 'Promotion application not found' });
+    }
+
+    // Get document
+    const docResult = await pool.query(
+      'SELECT * FROM documents WHERE id = $1 AND teacher_id = $2',
+      [document_id, teacher.id]
+    );
+
+    if (docResult.rows.length === 0) {
+      return res.status(404).json({ message: 'Document not found' });
+    }
+
+    const document = docResult.rows[0];
+
+    // Parse OCR validation
+    let validation = null;
+    if (document.ocr_validation) {
+      try { validation = JSON.parse(document.ocr_validation); } catch (e) {}
+    }
+
+    const nameMatch = validation?.nameMatch || false;
+    const staffIdMatch = validation?.staffIdMatch || false;
+
+    // Auto decision based on OCR
+    let hrDecision = 'manual_review';
+    if (nameMatch && staffIdMatch) {
+      hrDecision = 'approved';
+    } else if (!nameMatch && !staffIdMatch) {
+      hrDecision = 'manual_review';
+    }
+
+    // Save promotion document
+    const existing = await pool.query(
+      'SELECT id FROM promotion_documents WHERE application_id = $1',
+      [req.params.id]
+    );
+
+    let promoDoc;
+    if (existing.rows.length > 0) {
+      promoDoc = await pool.query(
+        `UPDATE promotion_documents SET
+          document_id = $1, ocr_name_match = $2, ocr_staff_id_match = $3,
+          ocr_validation = $4, hr_decision = $5, hr_reviewed = false,
+          exam_access_granted = false
+         WHERE application_id = $6 RETURNING *`,
+        [document_id, nameMatch, staffIdMatch,
+          document.ocr_validation, hrDecision, req.params.id]
+      );
+    } else {
+      promoDoc = await pool.query(
+        `INSERT INTO promotion_documents
+          (application_id, teacher_id, document_id, ocr_name_match,
+           ocr_staff_id_match, ocr_validation, hr_decision)
+         VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+        [req.params.id, teacher.id, document_id,
+          nameMatch, staffIdMatch, document.ocr_validation, hrDecision]
+      );
+    }
+
+    await pool.query(
+      'INSERT INTO audit_logs (user_id, action, entity, entity_id, details) VALUES ($1,$2,$3,$4,$5)',
+      [req.user.id, 'SUBMIT_PROMO_DOC', 'promotion_documents',
+        promoDoc.rows[0].id, `Document submitted for promotion application`]
+    );
+
+    res.json({
+      message: 'Document submitted successfully',
+      ocr_result: {
+        nameMatch,
+        staffIdMatch,
+        auto_decision: hrDecision,
+        details: validation?.details || []
+      },
+      promotion_document: promoDoc.rows[0]
+    });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error', error: err.message });
+  }
+};
+
+// @route  GET /api/promotions/documents
+// @access HR Officer, Admin — see all promotion documents with OCR status
+const getPromotionDocuments = async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT pd.*,
+        t.first_name, t.last_name, t.staff_id, t.current_grade,
+        t.qualification, t.years_of_service,
+        d.file_name, d.file_type, d.ocr_status, d.ocr_extracted_text,
+        a.reason as application_reason, a.status as application_status,
+        u.email as reviewed_by_email
+       FROM promotion_documents pd
+       JOIN teachers t ON pd.teacher_id = t.id
+       JOIN documents d ON pd.document_id = d.id
+       JOIN applications a ON pd.application_id = a.id
+       LEFT JOIN users u ON pd.reviewed_by = u.id
+       ORDER BY pd.created_at DESC`
+    );
+
+    res.json({ count: result.rows.length, documents: result.rows });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error', error: err.message });
+  }
+};
+
+// @route  PUT /api/promotions/documents/:id/review
+// @access HR Officer, Admin — review promotion document and grant exam access
+const reviewPromotionDocument = async (req, res) => {
+  const { decision, hr_notes } = req.body;
+
+  if (!decision || !['approved', 'rejected', 'manual_review'].includes(decision)) {
+    return res.status(400).json({ message: 'Valid decision required: approved, rejected, manual_review' });
+  }
+
+  try {
+    const grantExamAccess = decision === 'approved';
+
+    const result = await pool.query(
+      `UPDATE promotion_documents SET
+        hr_decision = $1,
+        hr_notes = $2,
+        hr_reviewed = true,
+        exam_access_granted = $3,
+        reviewed_by = $4,
+        reviewed_at = NOW()
+       WHERE id = $5 RETURNING *`,
+      [decision, hr_notes || null, grantExamAccess, req.user.id, req.params.id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: 'Promotion document not found' });
+    }
+
+    await pool.query(
+      'INSERT INTO audit_logs (user_id, action, entity, entity_id, details) VALUES ($1,$2,$3,$4,$5)',
+      [req.user.id, 'REVIEW_PROMO_DOC', 'promotion_documents',
+        req.params.id, `HR decision: ${decision}. Exam access: ${grantExamAccess}`]
+    );
+
+    res.json({
+      message: `Document ${decision}. Exam access ${grantExamAccess ? 'granted' : 'denied'}.`,
+      promotion_document: result.rows[0]
+    });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error', error: err.message });
+  }
+};
+
+
+
 module.exports = {
   checkPromotionEligibility,
   applyForPromotion,
   getMyPromotions,
   getAllPromotions,
   getPromotionById,
-  reviewPromotion
+  reviewPromotion,
+  submitPromotionDocument,
+  getPromotionDocuments,
+  reviewPromotionDocument
 };
