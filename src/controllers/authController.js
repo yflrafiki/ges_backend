@@ -15,9 +15,25 @@ const generateToken = (user) => {
 const register = async (req, res) => {
   console.log('BODY RECEIVED:', req.body);
 
-  const { email, password, role, staff_id, first_name, last_name, phone, gender,
+  const {
+    email, password, role,
+    // Basic
+    staff_id, first_name, last_name, date_of_birth,
+    phone, gender, qualification,
     subject_specialization, current_grade, current_school,
-    current_district, current_region, qualification } = req.body;
+    current_district, current_region,
+    // Personal
+    title, marital_status, nationality, hometown,
+    // Rank
+    national_date_of_present_rank, years_in_current_rank,
+    // Employment
+    date_of_first_appointment, date_of_confirmation,
+    date_of_current_posting, employment_status,
+    // Health
+    disability_status, disability_type,
+    // Service
+    years_of_service
+  } = req.body;
 
   if (!email || !password) {
     return res.status(400).json({ message: 'Email and password are required' });
@@ -53,17 +69,49 @@ const register = async (req, res) => {
     const user = userResult.rows[0];
 
     if (user.role === 'teacher') {
-      await pool.query(
-        `INSERT INTO teachers 
-          (user_id, staff_id, first_name, last_name, phone, gender,
-          subject_specialization, current_grade, current_school,
-          current_district, current_region, qualification)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
-        [user.id, staff_id, first_name, last_name, phone || null, gender || null,
-          subject_specialization || null, current_grade || null, current_school || null,
-          current_district || null, current_region || null, qualification || null]
-      );
-    }
+  await pool.query(
+    `INSERT INTO teachers 
+      (user_id, staff_id, first_name, last_name, phone, gender,
+      subject_specialization, current_grade, current_school,
+      current_district, current_region, qualification,
+      title, marital_status, nationality, hometown,
+      national_date_of_present_rank, years_in_current_rank,
+      date_of_first_appointment, date_of_confirmation,
+      date_of_current_posting, employment_status,
+      disability_status, disability_type,
+      years_of_service, date_of_birth)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,
+             $13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26)`,
+    [
+      user.id,
+      staff_id,
+      first_name,
+      last_name,
+      phone || null,
+      gender || null,
+      subject_specialization || null,
+      current_grade || null,
+      current_school || null,
+      current_district || null,
+      current_region || null,
+      qualification || null,
+      title || null,
+      marital_status || null,
+      nationality || null,
+      hometown || null,
+      national_date_of_present_rank || null,
+      years_in_current_rank || 0,
+      date_of_first_appointment || null,
+      date_of_confirmation || null,
+      date_of_current_posting || null,
+      employment_status || 'active',
+      disability_status === 'true' || disability_status === true || false,
+      disability_type || null,
+      years_of_service || 0,
+      date_of_birth || null
+    ]
+  );
+}
 
     await pool.query(
       'INSERT INTO audit_logs (user_id, action, entity, details) VALUES ($1, $2, $3, $4)',

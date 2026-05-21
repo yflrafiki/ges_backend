@@ -1,0 +1,15 @@
+ALTER TABLE teachers
+  ADD COLUMN IF NOT EXISTS title VARCHAR(20),
+  ADD COLUMN IF NOT EXISTS date_of_birth DATE,
+  ADD COLUMN IF NOT EXISTS marital_status VARCHAR(20),
+  ADD COLUMN IF NOT EXISTS nationality VARCHAR(100),
+  ADD COLUMN IF NOT EXISTS hometown VARCHAR(100),
+  ADD COLUMN IF NOT EXISTS national_date_of_present_rank DATE,
+  ADD COLUMN IF NOT EXISTS years_in_current_rank INTEGER DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS date_of_first_appointment DATE,
+  ADD COLUMN IF NOT EXISTS date_of_confirmation DATE,
+  ADD COLUMN IF NOT EXISTS date_of_current_posting DATE,
+  ADD COLUMN IF NOT EXISTS employment_status VARCHAR(50) DEFAULT 'active',
+  ADD COLUMN IF NOT EXISTS disability_status BOOLEAN DEFAULT false,
+  ADD COLUMN IF NOT EXISTS disability_type TEXT,
+  ADD COLUMN IF NOT EXISTS passport_photo VARCHAR(500);
