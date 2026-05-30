@@ -81,7 +81,7 @@ const uploadDocument = async (req, res) => {
     });
 
     // Process OCR in background
-    processOCR(document.id, req.file.path, teacher_id);
+    processOCR(document.id, req.file.path, teacher_id, fileHash);
 
   } catch (err) {
     console.error(err);
@@ -90,7 +90,7 @@ const uploadDocument = async (req, res) => {
 };
 
 // Background OCR processing with validation
-const processOCR = async (documentId, filePath, teacherId) => {
+const processOCR = async (documentId, filePath, teacherId, fileHash) => {
   try {
     console.log(`\n=== OCR Processing: Document ${documentId} ===`);
 
@@ -103,13 +103,14 @@ const processOCR = async (documentId, filePath, teacherId) => {
       console.log('Parsed fields:', parsedFields);
 
       // Validate against teacher record in database
-      const validation = await validateAgainstTeacherRecord(teacherId, parsedFields);
+      const validation = await validateAgainstTeacherRecord(teacherId, parsedFields, fileHash);
       console.log('Validation result:', validation);
 
       // Build validation summary
       const validationSummary = JSON.stringify({
         nameMatch: validation.nameMatch,
         staffIdMatch: validation.staffIdMatch,
+        blockchainCheck: validation.blockchainCheck,
         details: validation.details,
         parsedFields: {
           name: parsedFields.name || null,

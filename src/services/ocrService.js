@@ -3,6 +3,7 @@ const mammoth = require('mammoth');
 const path = require('path');
 const fs = require('fs');
 const pool = require('../config/db');
+const { verifyAgainstReference } = require('./blockchainVerifyService');
 
 // Extract text based on file type
 const extractTextFromFile = async (filePath) => {
@@ -188,7 +189,7 @@ const parseDocumentFields = (text) => {
 };
 
 // Validate OCR fields against teacher DB record
-const validateAgainstTeacherRecord = async (teacherId, parsedFields) => {
+const validateAgainstTeacherRecord = async (teacherId, parsedFields, documentHash) => {
   try {
     const result = await pool.query(
       'SELECT first_name, last_name, staff_id FROM teachers WHERE id = $1',
@@ -208,7 +209,8 @@ const validateAgainstTeacherRecord = async (teacherId, parsedFields) => {
     const validationResults = {
       nameMatch: false,
       staffIdMatch: false,
-      details: []
+      details: [],
+      blockchainCheck: null
     };
 
     // Name validation
@@ -246,10 +248,28 @@ const validateAgainstTeacherRecord = async (teacherId, parsedFields) => {
       validationResults.details.push('⚠ No Staff ID detected in document');
     }
 
+    // Blockchain reference check
+    console.log(`Checking blockchain references for staff: ${staffId}`);
+    const blockchainResult = await verifyAgainstReference(staffId, fullName, documentHash);
+    validationResults.blockchainCheck = blockchainResult;
+
+    if (blockchainResult.found) {
+      if (blockchainResult.hashMatch) {
+        validationResults.details.push(`✓ BLOCKCHAIN: Exact document match found on ledger`);
+      } else if (blockchainResult.nameMatch) {
+        validationResults.details.push(`✓ BLOCKCHAIN: Teacher name verified against blockchain reference`);
+      } else {
+        validationResults.details.push(`⚠ BLOCKCHAIN: Document does not match reference on ledger`);
+      }
+    } else {
+      validationResults.details.push(`⚠ BLOCKCHAIN: No reference documents found for this teacher`);
+    }
+
     return {
       valid: validationResults.nameMatch || validationResults.staffIdMatch,
       nameMatch: validationResults.nameMatch,
       staffIdMatch: validationResults.staffIdMatch,
+      blockchainCheck: blockchainResult,
       details: validationResults.details,
       teacherRecord: { name: fullName, staffId }
     };
