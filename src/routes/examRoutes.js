@@ -8,7 +8,8 @@ const {
   getAvailableExams,
   getExamQuestions,
   submitExam,
-  getExamResults
+  getExamResults,
+  getMyExamResult
 } = require('../controllers/examController');
 const { protect, authorize } = require('../middleware/auth');
 
@@ -23,6 +24,7 @@ router.get('/', protect, authorize('hr_officer', 'admin', 'examiner'), getAllExa
 
 // Teacher routes
 router.get('/available', protect, authorize('teacher'), getAvailableExams);
+router.get('/:id/my-result', protect, authorize('teacher'), getMyExamResult);
 router.get('/:id/questions', protect, authorize('teacher'), getExamQuestions);
 router.post('/:id/submit', protect, authorize('teacher'), submitExam);
 

@@ -78,6 +78,49 @@ const checkPromotionEligibility = async (req, res) => {
   }
 };
 
+// @route  GET /api/promotions/form
+// @access Teacher only
+const getPromotionForm = async (req, res) => {
+  try {
+    if (!req.user || !req.user.id) {
+      return res.status(401).json({ message: 'Not authorized, no token' });
+    }
+    const result = await pool.query(
+      'SELECT * FROM teachers WHERE user_id = $1',
+      [req.user.id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: 'Teacher profile not found' });
+    }
+
+    const teacher = result.rows[0];
+    const eligibility = checkEligibility(teacher);
+
+    res.json({
+      teacher: {
+        name: `${teacher.first_name} ${teacher.last_name}`,
+        current_grade: teacher.current_grade,
+        years_of_service: teacher.years_of_service,
+        qualification: teacher.qualification
+      },
+      eligibility,
+      form_fields: [
+        {
+          name: 'reason',
+          label: 'Reason for promotion',
+          type: 'textarea',
+          required: true,
+          placeholder: 'Explain why you are eligible for this promotion'
+        }
+      ]
+    });
+  } catch (err) {
+    console.error(err.stack || err);
+    res.status(500).json({ message: 'Server error', error: err.message });
+  }
+};
+
 // @route  POST /api/promotions
 // @access Teacher only
 const applyForPromotion = async (req, res) => {
@@ -222,6 +265,12 @@ const getAllPromotions = async (req, res) => {
 // @access HR Officer, Admin, Teacher (own only)
 const getPromotionById = async (req, res) => {
   try {
+    // Validate id is a UUID to avoid accidental routing of literal paths like 'form'
+    const id = req.params.id;
+    const uuidRegex = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+    if (!uuidRegex.test(id)) {
+      return res.status(404).json({ message: 'Promotion application not found' });
+    }
     const result = await pool.query(
       `SELECT a.*,
         t.first_name, t.last_name, t.staff_id,
@@ -549,6 +598,7 @@ const reviewPromotionDocument = async (req, res) => {
 
 module.exports = {
   checkPromotionEligibility,
+  getPromotionForm,
   applyForPromotion,
   getMyPromotions,
   getAllPromotions,

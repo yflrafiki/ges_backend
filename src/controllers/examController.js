@@ -1,5 +1,85 @@
 const pool = require('../config/db');
 
+const normalizeAnswerValue = (value) => {
+  if (value === undefined || value === null) return '';
+  return String(value).trim();
+};
+
+const normalizeAnswerLabel = (value) => {
+  const normalized = normalizeAnswerValue(value).toUpperCase();
+  return ['A', 'B', 'C', 'D'].includes(normalized) ? normalized : null;
+};
+
+const normalizeCorrectAnswer = (value, question) => {
+  const label = normalizeAnswerLabel(value);
+  if (label) return label;
+
+  const normalized = normalizeAnswerValue(value).toUpperCase();
+  const optionMap = {
+    A: normalizeAnswerValue(question.option_a),
+    B: normalizeAnswerValue(question.option_b),
+    C: normalizeAnswerValue(question.option_c),
+    D: normalizeAnswerValue(question.option_d),
+  };
+
+  for (const [optionLabel, text] of Object.entries(optionMap)) {
+    if (text && text.toUpperCase() === normalized) {
+      return optionLabel;
+    }
+  }
+
+  return null;
+};
+
+const resolveSubmittedAnswer = (answer) => {
+  if (answer === undefined || answer === null) return null;
+  if (typeof answer === 'string' || typeof answer === 'number' || typeof answer === 'boolean') {
+    return normalizeAnswerValue(answer);
+  }
+  if (typeof answer === 'object') {
+    return normalizeAnswerValue(answer.selected_answer || answer.answer || answer.value || answer.choice);
+  }
+  return null;
+};
+
+const mapSubmittedAnswer = (selected, question) => {
+  const normalized = resolveSubmittedAnswer(selected);
+  if (!normalized) return null;
+
+  const upper = normalized.toUpperCase();
+  if (['A', 'B', 'C', 'D'].includes(upper)) {
+    return upper;
+  }
+
+  const optionMap = {
+    A: normalizeAnswerValue(question.option_a),
+    B: normalizeAnswerValue(question.option_b),
+    C: normalizeAnswerValue(question.option_c),
+    D: normalizeAnswerValue(question.option_d),
+  };
+
+  for (const [label, text] of Object.entries(optionMap)) {
+    if (text && text.toUpperCase() === upper) {
+      return label;
+    }
+  }
+
+  return null;
+};
+
+const isAnswerCorrect = (selected, question) => {
+  const selectedLabel = mapSubmittedAnswer(selected, question);
+  const correctLabel = normalizeCorrectAnswer(question.correct_answer, question);
+
+  if (correctLabel) {
+    return selectedLabel !== null && selectedLabel === correctLabel;
+  }
+
+  const selectedText = resolveSubmittedAnswer(selected).toUpperCase();
+  const correctText = normalizeAnswerValue(question.correct_answer).toUpperCase();
+  return selectedText && correctText && selectedText === correctText;
+};
+
 // @route  POST /api/exams
 // @access HR Officer, Admin
 const createExam = async (req, res) => {
@@ -21,10 +101,15 @@ const createExam = async (req, res) => {
 
     // Insert questions
     for (const q of questions) {
+      const correctAnswer = normalizeAnswerLabel(q.correct_answer);
+      if (!correctAnswer) {
+        return res.status(400).json({ message: `Invalid correct answer for question: ${q.question}` });
+      }
+
       await pool.query(
         `INSERT INTO exam_questions (exam_id, question, option_a, option_b, option_c, option_d, correct_answer, marks)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
-        [exam.id, q.question, q.option_a, q.option_b, q.option_c, q.option_d, q.correct_answer, q.marks || 1]
+        [exam.id, q.question, q.option_a, q.option_b, q.option_c, q.option_d, correctAnswer, q.marks || 1]
       );
     }
 
@@ -212,8 +297,57 @@ const getExamQuestions = async (req, res) => {
   }
 };
 
+// @route  GET /api/exams/:id/my-result
+// @access Teacher only
+const getMyExamResult = async (req, res) => {
+  try {
+    const teacherResult = await pool.query(
+      'SELECT id FROM teachers WHERE user_id = $1',
+      [req.user.id]
+    );
+
+    if (teacherResult.rows.length === 0) {
+      return res.status(404).json({ message: 'Teacher profile not found' });
+    }
+
+    const result = await pool.query(
+      `SELECT ea.*, e.title as exam_title, e.pass_mark, e.total_marks
+       FROM exam_attempts ea
+       JOIN exams e ON ea.exam_id = e.id
+       WHERE ea.exam_id = $1 AND ea.teacher_id = $2 AND ea.status = 'submitted'`,
+      [req.params.id, teacherResult.rows[0].id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: 'No submitted result found for this exam' });
+    }
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error', error: err.message });
+  }
+};
+
 // @route  POST /api/exams/:id/submit
 // @access Teacher only
+const buildAnswersMap = (answers) => {
+  if (!answers) return {};
+  if (Array.isArray(answers)) {
+    return answers.reduce((map, answer) => {
+      const key = answer.question_id || answer.id || answer.questionId || answer.question;
+      if (key) {
+        map[key] = answer;
+      }
+      return map;
+    }, {});
+  }
+  if (typeof answers === 'object') {
+    return answers;
+  }
+  return {};
+};
+
 const submitExam = async (req, res) => {
   const { attempt_id, answers } = req.body;
 
@@ -226,6 +360,10 @@ const submitExam = async (req, res) => {
       'SELECT id FROM teachers WHERE user_id = $1',
       [req.user.id]
     );
+
+    if (teacherResult.rows.length === 0) {
+      return res.status(404).json({ message: 'Teacher profile not found' });
+    }
 
     const teacher_id = teacherResult.rows[0].id;
 
@@ -243,9 +381,11 @@ const submitExam = async (req, res) => {
       return res.status(400).json({ message: 'Exam already submitted' });
     }
 
-    // Get correct answers
+    const answersMap = buildAnswersMap(answers);
+
+    // Get questions with correct answers and option text
     const questions = await pool.query(
-      'SELECT id, correct_answer, marks FROM exam_questions WHERE exam_id = $1',
+      'SELECT id, correct_answer, option_a, option_b, option_c, option_d, marks FROM exam_questions WHERE exam_id = $1',
       [attemptResult.rows[0].exam_id]
     );
 
@@ -260,14 +400,14 @@ const submitExam = async (req, res) => {
     // Grade answers
     let score = 0;
     for (const q of questions.rows) {
-      const answer = answers[q.id];
-      const isCorrect = answer === q.correct_answer;
+      const selected = mapSubmittedAnswer(answersMap[q.id], q);
+      const isCorrect = isAnswerCorrect(answersMap[q.id], q);
       if (isCorrect) score += q.marks;
 
       await pool.query(
         `INSERT INTO exam_answers (attempt_id, question_id, selected_answer, is_correct)
          VALUES ($1, $2, $3, $4)`,
-        [attempt_id, q.id, answer || null, isCorrect]
+        [attempt_id, q.id, selected, isCorrect]
       );
     }
 
@@ -336,5 +476,6 @@ module.exports = {
   getAvailableExams,
   getExamQuestions,
   submitExam,
-  getExamResults
+  getExamResults,
+  getMyExamResult
 };

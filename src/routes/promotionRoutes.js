@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const {
   checkPromotionEligibility,
+  getPromotionForm,
   applyForPromotion,
   getMyPromotions,
   getAllPromotions,
@@ -15,6 +16,7 @@ const { protect, authorize } = require('../middleware/auth');
 
 // Teacher routes
 router.get('/eligibility', protect, authorize('teacher'), checkPromotionEligibility);
+router.get('/form', protect, authorize('teacher'), getPromotionForm);
 router.post('/', protect, authorize('teacher'), applyForPromotion);
 router.get('/my', protect, authorize('teacher'), getMyPromotions);
 router.post('/:id/submit-document', protect, authorize('teacher'), submitPromotionDocument);
