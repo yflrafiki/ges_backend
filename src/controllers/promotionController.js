@@ -4,7 +4,8 @@ const { validateAgainstTeacherRecord, parseDocumentFields, extractTextFromFile }
 
 // Eligibility rules
 const ELIGIBILITY_RULES = {
-  'Grade C': { minYears: 3, requiredQualification: ['Certificate', 'Diploma', 'B.Ed', 'B.A', 'B.Sc'] },
+  // Require strictly more than 3 years for initial promotion to Grade C
+  'Grade C': { minYears: 3, requiredQualification: ['Certificate', 'Diploma', 'B.Ed', 'B.A', 'B.Sc'], strict: true },
   'Grade B': { minYears: 4, requiredQualification: ['B.Ed', 'B.A', 'B.Sc', 'M.Ed', 'M.A', 'M.Sc'] },
   'Grade A': { minYears: 5, requiredQualification: ['M.Ed', 'M.A', 'M.Sc', 'PhD'] },
   'Principal': { minYears: 8, requiredQualification: ['M.Ed', 'M.A', 'M.Sc', 'PhD'] },
@@ -42,10 +43,16 @@ const checkEligibility = (teacher) => {
     }
   }
 
-  if ((Number.isFinite(yearsOfService) ? yearsOfService : 0) < rules.minYears) {
+  const requiredYears = Number(rules.minYears) || 0;
+  const haveYears = Number.isFinite(yearsOfService) ? yearsOfService : 0;
+  const meetsYears = rules.strict ? (haveYears > requiredYears) : (haveYears >= requiredYears);
+
+  if (!meetsYears) {
     return {
       eligible: false,
-      reason: `Minimum ${rules.minYears} years of service required for ${nextGrade}. You have ${yearsOfService || 0} years.`
+      reason: rules.strict
+        ? `More than ${requiredYears} years of service required for ${nextGrade}. You have ${haveYears} years.`
+        : `Minimum ${requiredYears} years of service required for ${nextGrade}. You have ${haveYears} years.`
     };
   }
 
