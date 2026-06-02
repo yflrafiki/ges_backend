@@ -22,7 +22,13 @@ const app = express();
 
 // Middleware
 app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
-app.use(cors());
+app.use(cors({
+  origin: [
+    'https://gesadmin.vercel.app',
+    'https://gesteachers.vercel.app',
+  ],
+  credentials: true,
+}));
 app.use(morgan('dev'));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
