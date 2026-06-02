@@ -8,15 +8,18 @@ const morgan = require('morgan');
 const multer = require('multer');
 require('dotenv').config();
 
-const requiredEnv = [
-  'DB_HOST',
-  'DB_PORT',
-  'DB_NAME',
-  'DB_USER',
-  'DB_PASSWORD',
-  'JWT_SECRET',
-  'JWT_EXPIRES_IN'
-];
+const useDatabaseUrl = Boolean(process.env.DATABASE_URL);
+const requiredEnv = useDatabaseUrl
+  ? ['JWT_SECRET', 'JWT_EXPIRES_IN']
+  : [
+      'DB_HOST',
+      'DB_PORT',
+      'DB_NAME',
+      'DB_USER',
+      'DB_PASSWORD',
+      'JWT_SECRET',
+      'JWT_EXPIRES_IN',
+    ];
 const missingEnv = requiredEnv.filter((key) => !process.env[key]);
 if (missingEnv.length > 0) {
   console.error('Missing required environment variables:', missingEnv.join(', '));
@@ -37,11 +40,22 @@ const app = express();
 
 // Middleware
 app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
+const allowedOrigins = [
+  'https://gesadmin.vercel.app',
+  'https://gesteachers.vercel.app',
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+  'http://localhost:3000',
+  'http://127.0.0.1:3000',
+];
+
 app.use(cors({
-  origin: [
-    'https://gesadmin.vercel.app',
-    'https://gesteachers.vercel.app',
-  ],
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+    return callback(new Error(`CORS policy does not allow access from origin ${origin}`));
+  },
   credentials: true,
 }));
 app.use(morgan('dev'));
