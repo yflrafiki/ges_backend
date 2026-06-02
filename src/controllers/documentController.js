@@ -75,7 +75,6 @@ const uploadDocument = async (req, res) => {
         file_name: document.file_name,
         file_type: document.file_type,
         ocr_status: document.ocr_status,
-        document_hash: document.document_hash,
         uploaded_at: document.uploaded_at
       }
     });
@@ -168,7 +167,7 @@ const getMyDocuments = async (req, res) => {
 
     const result = await pool.query(
       `SELECT id, file_name, file_type, ocr_status,
-        ocr_extracted_text, ocr_validation, document_hash,
+        ocr_extracted_text, ocr_validation,
         application_id, uploaded_at
        FROM documents
        WHERE teacher_id = $1
@@ -218,7 +217,10 @@ const getDocumentById = async (req, res) => {
       try { validation = JSON.parse(doc.ocr_validation); } catch (e) {}
     }
 
-    res.json({ document: doc, validation });
+    const documentResponse = { ...doc };
+    delete documentResponse.document_hash;
+
+    res.json({ document: documentResponse, validation });
 
   } catch (err) {
     console.error(err);
@@ -232,7 +234,7 @@ const getTeacherDocuments = async (req, res) => {
   try {
     const result = await pool.query(
       `SELECT id, file_name, file_type, ocr_status,
-        ocr_extracted_text, ocr_validation, document_hash, uploaded_at
+        ocr_extracted_text, ocr_validation, uploaded_at
        FROM documents
        WHERE teacher_id = $1
        ORDER BY uploaded_at DESC`,

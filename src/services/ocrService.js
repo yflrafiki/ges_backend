@@ -170,6 +170,30 @@ const parseDocumentFields = (text) => {
     }
   }
 
+  // Fallback name extraction from labeled lines
+  if (!fields.name) {
+    const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    for (const line of lines) {
+      const lineNameMatch = line.match(/(?:name|employee|staff)\s*[:\-]\s*([A-Za-z][A-Za-z\s]{2,60})/i);
+      if (lineNameMatch && lineNameMatch[1].trim().length > 2) {
+        fields.name = lineNameMatch[1].trim().replace(/\s+/g, ' ');
+        break;
+      }
+    }
+  }
+
+  // Fallback staff ID extraction from labeled lines
+  if (!fields.staffId) {
+    const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    for (const line of lines) {
+      const lineIdMatch = line.match(/(?:staff\s*id|employee\s*id|id\s*(?:no|number)|staff)\s*[:#\-]?\s*([A-Z0-9\-\/]+)/i);
+      if (lineIdMatch && lineIdMatch[1]) {
+        fields.staffId = lineIdMatch[1].trim();
+        break;
+      }
+    }
+  }
+
   // Institution
   const institutionPattern = /(?:UNIVERSITY|COLLEGE|INSTITUTE|SCHOOL|POLYTECHNIC|COMMISSION|COUNCIL|EDUCATION)[^\n\r]{0,80}/gi;
   const institutions = text.match(institutionPattern);

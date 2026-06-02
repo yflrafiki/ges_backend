@@ -21,6 +21,7 @@ const getMyProfile = async (req, res) => {
     const teacher = result.rows[0];
     if (teacher.passport_photo) {
       teacher.passport_photo = teacher.passport_photo.replace(/^\//, '');
+      teacher.passport_photo_url = `${req.protocol}://${req.get('host')}/${teacher.passport_photo}`;
     }
     res.json(teacher);
   } catch (err) {
@@ -109,7 +110,13 @@ const updateMyProfile = async (req, res) => {
       [req.user.id, 'UPDATE_PROFILE', 'teachers', teacher.id, 'Teacher updated profile']
     );
 
-    res.json({ message: 'Profile updated successfully', teacher: updated.rows[0] });
+    const updatedTeacher = updated.rows[0];
+    if (updatedTeacher.passport_photo) {
+      updatedTeacher.passport_photo = updatedTeacher.passport_photo.replace(/^\//, '');
+      updatedTeacher.passport_photo_url = `${req.protocol}://${req.get('host')}/${updatedTeacher.passport_photo}`;
+    }
+
+    res.json({ message: 'Profile updated successfully', teacher: updatedTeacher });
 
   } catch (err) {
     console.error(err);
