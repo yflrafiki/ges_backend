@@ -1,4 +1,6 @@
 const { Pool } = require('pg');
+const fs = require('fs');
+const path = require('path');
 require('dotenv').config();
 
 const useDatabaseUrl = Boolean(process.env.DATABASE_URL);
@@ -28,13 +30,29 @@ const pool = new Pool(poolConfig);
 
 console.log('Database config:', useDatabaseUrl ? 'DATABASE_URL' : `${process.env.DB_USER}@${process.env.DB_HOST}:${process.env.DB_PORT}/${process.env.DB_NAME}`);
 
-pool.connect((err, client, release) => {
+const initializeDatabase = async () => {
+  try {
+    const schemaPath = path.join(__dirname, 'schema.sql');
+    const schemaSql = fs.readFileSync(schemaPath, 'utf8');
+    await pool.query(schemaSql);
+    console.log('Database schema initialized');
+  } catch (err) {
+    console.error('Database schema initialization failed:', err);
+    process.exit(1);
+  }
+};
+
+pool.connect(async (err, client, release) => {
   if (err) {
     console.error('Database connection error:', err.message);
   } else {
     console.log('Connected to PostgreSQL database');
     console.log('Verified PostgreSQL connection');
-    release();
+    try {
+      await initializeDatabase();
+    } finally {
+      release();
+    }
   }
 });
 
