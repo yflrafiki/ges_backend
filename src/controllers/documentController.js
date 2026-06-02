@@ -155,12 +155,14 @@ const processOCR = async (documentId, filePath, teacherId, fileHash) => {
 // @access Teacher only
 const getMyDocuments = async (req, res) => {
   try {
+    console.log('GET /api/documents/my for user', req.user.id);
     const teacherResult = await pool.query(
       'SELECT id FROM teachers WHERE user_id = $1',
       [req.user.id]
     );
 
     if (teacherResult.rows.length === 0) {
+      console.warn('Teacher profile not found for user', req.user.id);
       return res.status(404).json({ message: 'Teacher profile not found' });
     }
 

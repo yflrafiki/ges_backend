@@ -6,6 +6,7 @@ const fs = require('fs');
 // @access Teacher only
 const getMyProfile = async (req, res) => {
   try {
+    console.log('GET /api/teachers/profile for user', req.user.id, req.user.email || 'no-email');
     const result = await pool.query(
       `SELECT t.*, u.email, u.role 
        FROM teachers t 
@@ -14,6 +15,7 @@ const getMyProfile = async (req, res) => {
       [req.user.id]
     );
     if (result.rows.length === 0) {
+      console.warn('Teacher profile not found for user', req.user.id);
       return res.status(404).json({ message: 'Teacher profile not found' });
     }
     const teacher = result.rows[0];

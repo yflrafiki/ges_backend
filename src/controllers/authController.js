@@ -42,21 +42,24 @@ const register = async (req, res) => {
     years_of_service
   } = req.body;
 
-  if (!email || !password) {
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+  const normalizedRole = String(role || '').trim().toLowerCase();
+
+  if (!normalizedEmail || !password) {
     return res.status(400).json({ message: 'Email and password are required' });
   }
 
-  if (!role) {
+  if (!normalizedRole) {
     return res.status(400).json({ message: 'Role is required' });
   }
 
   // Validate role
   const allowedRoles = ['teacher', 'hr_officer', 'admin', 'examiner'];
-  if (!allowedRoles.includes(role)) {
+  if (!allowedRoles.includes(normalizedRole)) {
     return res.status(400).json({ message: 'Invalid role' });
   }
 
-  if (role === 'teacher' && (!staff_id || !first_name || !last_name)) {
+  if (normalizedRole === 'teacher' && (!staff_id || !first_name || !last_name)) {
     return res.status(400).json({ message: 'staff_id, first_name and last_name are required for teachers' });
   }
 
@@ -64,7 +67,7 @@ const register = async (req, res) => {
   try {
     await client.query('BEGIN');
 
-    const existing = await client.query('SELECT id FROM users WHERE email = $1', [email]);
+    const existing = await client.query('SELECT id FROM users WHERE email = $1', [normalizedEmail]);
     if (existing.rows.length > 0) {
       await client.query('ROLLBACK');
       return res.status(400).json({ message: 'Email already registered' });
@@ -75,7 +78,7 @@ const register = async (req, res) => {
 
     const userResult = await client.query(
       'INSERT INTO users (email, password, role) VALUES ($1, $2, $3) RETURNING id, email, role',
-      [email, hashedPassword, role]
+      [normalizedEmail, hashedPassword, normalizedRole]
     );
     const user = userResult.rows[0];
 
@@ -159,9 +162,10 @@ const register = async (req, res) => {
 const login = async (req, res) => {
   console.log('LOGIN BODY:', req.body);
   const { email, password } = req.body;
+  const normalizedEmail = String(email || '').trim().toLowerCase();
 
   try {
-    const result = await pool.query('SELECT * FROM users WHERE email = $1', [email]);
+    const result = await pool.query('SELECT * FROM users WHERE email = $1', [normalizedEmail]);
     if (result.rows.length === 0) {
       return res.status(401).json({ message: 'Invalid email or password' });
     }

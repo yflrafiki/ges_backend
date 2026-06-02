@@ -143,12 +143,14 @@ const processBlockchainVerification = async (document, teacher_id, user_id) => {
 // @access Teacher only
 const getMyCredentials = async (req, res) => {
   try {
+    console.log('GET /api/credentials/my for user', req.user.id);
     const teacherResult = await pool.query(
       'SELECT id FROM teachers WHERE user_id = $1',
       [req.user.id]
     );
 
     if (teacherResult.rows.length === 0) {
+      console.warn('Teacher profile not found for user', req.user.id);
       return res.status(404).json({ message: 'Teacher not found' });
     }
 

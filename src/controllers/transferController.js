@@ -63,12 +63,14 @@ const createTransfer = async (req, res) => {
 // @access Teacher only
 const getMyTransfers = async (req, res) => {
   try {
+    console.log('GET /api/transfers/my for user', req.user.id);
     const teacherResult = await pool.query(
       'SELECT id FROM teachers WHERE user_id = $1',
       [req.user.id]
     );
 
     if (teacherResult.rows.length === 0) {
+      console.warn('Teacher profile not found for user', req.user.id);
       return res.status(404).json({ message: 'Teacher profile not found' });
     }
 
