@@ -29,10 +29,23 @@ const checkEligibility = (teacher) => {
     return { eligible: false, reason: 'No eligibility rules found for next grade' };
   }
 
-  if (teacher.years_of_service < rules.minYears) {
+  // Calculate years of service: prefer explicit field, fall back to date_of_first_appointment
+  let yearsOfService = Number(teacher.years_of_service);
+  if (!Number.isFinite(yearsOfService) || yearsOfService === 0) {
+    if (teacher.date_of_first_appointment) {
+      const start = new Date(teacher.date_of_first_appointment);
+      if (!isNaN(start)) {
+        const now = new Date();
+        const diffMs = now - start;
+        yearsOfService = Math.floor(diffMs / (365.25 * 24 * 60 * 60 * 1000));
+      }
+    }
+  }
+
+  if ((Number.isFinite(yearsOfService) ? yearsOfService : 0) < rules.minYears) {
     return {
       eligible: false,
-      reason: `Minimum ${rules.minYears} years of service required for ${nextGrade}. You have ${teacher.years_of_service} years.`
+      reason: `Minimum ${rules.minYears} years of service required for ${nextGrade}. You have ${yearsOfService || 0} years.`
     };
   }
 
