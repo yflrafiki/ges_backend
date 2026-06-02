@@ -1,0 +1,8 @@
+{
+  "email": "test-deploy@example.com",
+  "password": "password123",
+  "role": "teacher",
+  "staff_id": "TESTDEP001",
+  "first_name": "Test",
+  "last_name": "Deploy"
+}
