@@ -16,20 +16,18 @@ const { protect, authorize } = require('../middleware/auth');
 
 const ensureTeacherProfile = require('../middleware/ensureTeacherProfile');
 
-// Teacher routes
+// Static routes first (must come before /:id to avoid shadowing)
 router.get('/eligibility', protect, authorize('teacher'), ensureTeacherProfile, checkPromotionEligibility);
 router.get('/form', protect, authorize('teacher'), ensureTeacherProfile, getPromotionForm);
-router.post('/', protect, authorize('teacher'), ensureTeacherProfile, applyForPromotion);
 router.get('/my', protect, authorize('teacher'), ensureTeacherProfile, getMyPromotions);
-router.post('/:id/submit-document', protect, authorize('teacher'), ensureTeacherProfile, submitPromotionDocument);
-
-// HR & Admin routes
 router.get('/documents', protect, authorize('hr_officer', 'admin'), getPromotionDocuments);
-router.put('/documents/:id/review', protect, authorize('hr_officer', 'admin'), reviewPromotionDocument);
 router.get('/', protect, authorize('hr_officer', 'admin'), getAllPromotions);
-router.put('/:id/review', protect, authorize('hr_officer', 'admin'), reviewPromotion);
+router.post('/', protect, authorize('teacher'), ensureTeacherProfile, applyForPromotion);
+router.put('/documents/:id/review', protect, authorize('hr_officer', 'admin'), reviewPromotionDocument);
 
-// Mixed
+// Dynamic routes
+router.post('/:id/submit-document', protect, authorize('teacher'), ensureTeacherProfile, submitPromotionDocument);
+router.put('/:id/review', protect, authorize('hr_officer', 'admin'), reviewPromotion);
 router.get('/:id', protect, authorize('teacher', 'hr_officer', 'admin'), getPromotionById);
 
 module.exports = router;
