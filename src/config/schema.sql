@@ -123,8 +123,11 @@ CREATE TABLE IF NOT EXISTS promotion_documents (
   ocr_staff_id_match BOOLEAN DEFAULT false,
   ocr_validation TEXT,
   hr_decision VARCHAR(50) DEFAULT 'manual_review',
+  hr_notes TEXT,
   hr_reviewed BOOLEAN DEFAULT false,
   exam_access_granted BOOLEAN DEFAULT false,
+  reviewed_by UUID REFERENCES users(id),
+  reviewed_at TIMESTAMP,
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()
 );

@@ -1,3 +1,8 @@
+ALTER TABLE promotion_documents
+  ADD COLUMN IF NOT EXISTS reviewed_by UUID REFERENCES users(id),
+  ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMP,
+  ADD COLUMN IF NOT EXISTS hr_notes TEXT;
+
 ALTER TABLE teachers
   ADD COLUMN IF NOT EXISTS title VARCHAR(20),
   ADD COLUMN IF NOT EXISTS date_of_birth DATE,
