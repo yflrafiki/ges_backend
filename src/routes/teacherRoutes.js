@@ -8,11 +8,12 @@ const {
   updateTeacherById
 } = require('../controllers/teacherController');
 const { protect, authorize } = require('../middleware/auth');
+const ensureTeacherProfile = require('../middleware/ensureTeacherProfile');
 const upload = require('../config/multer');
 
 // Teacher routes
-router.get('/profile', protect, authorize('teacher'), getMyProfile);
-router.put('/profile', protect, authorize('teacher'),
+router.get('/profile', protect, authorize('teacher'), ensureTeacherProfile, getMyProfile);
+router.put('/profile', protect, authorize('teacher'), ensureTeacherProfile,
   upload.single('passport_photo'), updateMyProfile);
 
 // HR & Admin routes

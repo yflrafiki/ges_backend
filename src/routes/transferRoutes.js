@@ -9,9 +9,11 @@ const {
 } = require('../controllers/transferController');
 const { protect, authorize } = require('../middleware/auth');
 
+const ensureTeacherProfile = require('../middleware/ensureTeacherProfile');
+
 // Teacher routes
-router.post('/', protect, authorize('teacher'), createTransfer);
-router.get('/my', protect, authorize('teacher'), getMyTransfers);
+router.post('/', protect, authorize('teacher'), ensureTeacherProfile, createTransfer);
+router.get('/my', protect, authorize('teacher'), ensureTeacherProfile, getMyTransfers);
 
 // HR & Admin routes
 router.get('/', protect, authorize('hr_officer', 'admin'), getAllTransfers);

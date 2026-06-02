@@ -9,9 +9,11 @@ const {
 } = require('../controllers/credentialController');
 const { protect, authorize } = require('../middleware/auth');
 
+const ensureTeacherProfile = require('../middleware/ensureTeacherProfile');
+
 // Teacher routes
-router.post('/verify/:documentId', protect, authorize('teacher'), submitForVerification);
-router.get('/my', protect, authorize('teacher'), getMyCredentials);
+router.post('/verify/:documentId', protect, authorize('teacher'), ensureTeacherProfile, submitForVerification);
+router.get('/my', protect, authorize('teacher'), ensureTeacherProfile, getMyCredentials);
 
 // HR & Admin routes
 router.get('/nodes', protect, authorize('hr_officer', 'admin'), getBlockchainNodes);

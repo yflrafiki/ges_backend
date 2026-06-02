@@ -9,9 +9,11 @@ const {
 const { protect, authorize } = require('../middleware/auth');
 const upload = require('../config/multer');
 
+const ensureTeacherProfile = require('../middleware/ensureTeacherProfile');
+
 // Teacher routes
-router.post('/upload', protect, authorize('teacher'), upload.single('document'), uploadDocument);
-router.get('/my', protect, authorize('teacher'), getMyDocuments);
+router.post('/upload', protect, authorize('teacher'), ensureTeacherProfile, upload.single('document'), uploadDocument);
+router.get('/my', protect, authorize('teacher'), ensureTeacherProfile, getMyDocuments);
 
 // HR & Admin routes
 router.get('/teacher/:teacherId', protect, authorize('hr_officer', 'admin'), getTeacherDocuments);
