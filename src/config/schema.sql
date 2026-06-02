@@ -5,9 +5,13 @@ CREATE TABLE IF NOT EXISTS users (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   email VARCHAR(255) UNIQUE NOT NULL,
   password VARCHAR(255) NOT NULL,
-  role VARCHAR(50) NOT NULL CHECK (role IN ('teacher', 'hr_officer', 'admin')),
+  role VARCHAR(50) NOT NULL CHECK (role IN ('teacher', 'hr_officer', 'admin', 'examiner')),
   created_at TIMESTAMP DEFAULT NOW()
 );
+
+ALTER TABLE IF EXISTS users
+  DROP CONSTRAINT IF EXISTS users_role_check,
+  ADD CONSTRAINT users_role_check CHECK (role IN ('teacher', 'hr_officer', 'admin', 'examiner'));
 
 -- Teachers table
 CREATE TABLE IF NOT EXISTS teachers (

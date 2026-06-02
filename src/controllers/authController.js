@@ -20,6 +20,8 @@ const generateToken = (user) => {
 const register = async (req, res) => {
   console.log('BODY RECEIVED:', req.body);
 
+  const nullable = (value) => value === '' ? null : value;
+
   const {
     email, password, role,
     // Basic
@@ -58,70 +60,76 @@ const register = async (req, res) => {
     return res.status(400).json({ message: 'staff_id, first_name and last_name are required for teachers' });
   }
 
+  const client = await pool.connect();
   try {
-    const existing = await pool.query('SELECT id FROM users WHERE email = $1', [email]);
+    await client.query('BEGIN');
+
+    const existing = await client.query('SELECT id FROM users WHERE email = $1', [email]);
     if (existing.rows.length > 0) {
+      await client.query('ROLLBACK');
       return res.status(400).json({ message: 'Email already registered' });
     }
 
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
 
-    const userResult = await pool.query(
+    const userResult = await client.query(
       'INSERT INTO users (email, password, role) VALUES ($1, $2, $3) RETURNING id, email, role',
       [email, hashedPassword, role]
     );
     const user = userResult.rows[0];
 
     if (user.role === 'teacher') {
-  await pool.query(
-    `INSERT INTO teachers 
-      (user_id, staff_id, first_name, last_name, phone, gender,
-      subject_specialization, current_grade, current_school,
-      current_district, current_region, qualification,
-      title, marital_status, nationality, hometown,
-      national_date_of_present_rank, years_in_current_rank,
-      date_of_first_appointment, date_of_confirmation,
-      date_of_current_posting, employment_status,
-      disability_status, disability_type,
-      years_of_service, date_of_birth)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,
-             $13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26)`,
-    [
-      user.id,
-      staff_id,
-      first_name,
-      last_name,
-      phone || null,
-      gender || null,
-      subject_specialization || null,
-      current_grade || null,
-      current_school || null,
-      current_district || null,
-      current_region || null,
-      qualification || null,
-      title || null,
-      marital_status || null,
-      nationality || null,
-      hometown || null,
-      national_date_of_present_rank || null,
-      years_in_current_rank || 0,
-      date_of_first_appointment || null,
-      date_of_confirmation || null,
-      date_of_current_posting || null,
-      employment_status || 'active',
-      disability_status === 'true' || disability_status === true || false,
-      disability_type || null,
-      years_of_service || 0,
-      date_of_birth || null
-    ]
-  );
-}
+      await client.query(
+        `INSERT INTO teachers 
+          (user_id, staff_id, first_name, last_name, phone, gender,
+          subject_specialization, current_grade, current_school,
+          current_district, current_region, qualification,
+          title, marital_status, nationality, hometown,
+          national_date_of_present_rank, years_in_current_rank,
+          date_of_first_appointment, date_of_confirmation,
+          date_of_current_posting, employment_status,
+          disability_status, disability_type,
+          years_of_service, date_of_birth)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,
+                 $13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26)`,
+        [
+          user.id,
+          nullable(staff_id),
+          nullable(first_name),
+          nullable(last_name),
+          nullable(phone),
+          nullable(gender),
+          nullable(subject_specialization),
+          nullable(current_grade),
+          nullable(current_school),
+          nullable(current_district),
+          nullable(current_region),
+          nullable(qualification),
+          nullable(title),
+          nullable(marital_status),
+          nullable(nationality),
+          nullable(hometown),
+          nullable(national_date_of_present_rank),
+          years_in_current_rank || 0,
+          nullable(date_of_first_appointment),
+          nullable(date_of_confirmation),
+          nullable(date_of_current_posting),
+          nullable(employment_status) || 'active',
+          disability_status === 'true' || disability_status === true || false,
+          nullable(disability_type),
+          years_in_service || 0,
+          nullable(date_of_birth)
+        ]
+      );
+    }
 
-    await pool.query(
+    await client.query(
       'INSERT INTO audit_logs (user_id, action, entity, details) VALUES ($1, $2, $3, $4)',
       [user.id, 'REGISTER', 'users', `New ${user.role} registered`]
     );
+
+    await client.query('COMMIT');
 
     const token = generateToken(user);
 
@@ -132,8 +140,18 @@ const register = async (req, res) => {
     });
 
   } catch (err) {
-    console.error(err);
+    await client.query('ROLLBACK');
+    console.error('REGISTER ERROR:', err.stack || err);
+    console.error('REGISTER BODY:', {
+      email: req.body.email,
+      role: req.body.role,
+      staff_id: req.body.staff_id,
+      first_name: req.body.first_name,
+      last_name: req.body.last_name,
+    });
     res.status(500).json({ message: 'Server error', error: err.message });
+  } finally {
+    client.release();
   }
 };
 
