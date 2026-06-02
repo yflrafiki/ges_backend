@@ -201,6 +201,21 @@ const getAvailableExams = async (req, res) => {
       [teacher.id]
     );
 
+    // Calculate years of service for exam eligibility
+    let yearsOfService = Number(teacher.years_of_service);
+    if (!Number.isFinite(yearsOfService) || yearsOfService === 0) {
+      if (teacher.date_of_first_appointment) {
+        const start = new Date(teacher.date_of_first_appointment);
+        if (!isNaN(start)) {
+          const now = new Date();
+          const diffMs = now - start;
+          yearsOfService = Math.floor(diffMs / (365.25 * 24 * 60 * 60 * 1000));
+        }
+      }
+    }
+
+    const isServiceEligible = Number.isFinite(yearsOfService) && yearsOfService > 3;
+
     // Get published exams with attempt status
     const result = await pool.query(
       `SELECT e.*,
@@ -215,7 +230,7 @@ const getAvailableExams = async (req, res) => {
     );
 
     res.json({
-      eligible: promotionResult.rows.length > 0,
+      eligible: promotionResult.rows.length > 0 || isServiceEligible,
       exams: result.rows
     });
 

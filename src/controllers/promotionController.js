@@ -2,14 +2,13 @@ const pool = require('../config/db');
 const { recordPromotionDecision } = require('../services/blockchainService');
 const { validateAgainstTeacherRecord, parseDocumentFields, extractTextFromFile } = require('../services/ocrService');
 
-// Eligibility rules
+// Eligibility rules: all grades qualify on more than 3 years of service
 const ELIGIBILITY_RULES = {
-  // Require strictly more than 3 years for initial promotion to Grade C
-  'Grade C': { minYears: 3, requiredQualification: ['Certificate', 'Diploma', 'B.Ed', 'B.A', 'B.Sc'], strict: true },
-  'Grade B': { minYears: 4, requiredQualification: ['B.Ed', 'B.A', 'B.Sc', 'M.Ed', 'M.A', 'M.Sc'] },
-  'Grade A': { minYears: 5, requiredQualification: ['M.Ed', 'M.A', 'M.Sc', 'PhD'] },
-  'Principal': { minYears: 8, requiredQualification: ['M.Ed', 'M.A', 'M.Sc', 'PhD'] },
-  'Director': { minYears: 10, requiredQualification: ['PhD'] },
+  'Grade C': { minYears: 3, strict: true },
+  'Grade B': { minYears: 3, strict: true },
+  'Grade A': { minYears: 3, strict: true },
+  'Principal': { minYears: 3, strict: true },
+  'Director': { minYears: 3, strict: true },
 };
 
 const getNextGrade = (currentGrade) => {
@@ -56,12 +55,7 @@ const checkEligibility = (teacher) => {
     };
   }
 
-  if (!rules.requiredQualification.includes(teacher.qualification)) {
-    return {
-      eligible: false,
-      reason: `Qualification '${teacher.qualification}' is not sufficient for ${nextGrade}. Required: ${rules.requiredQualification.join(', ')}`
-    };
-  }
+  return { eligible: true, nextGrade };
 
   return { eligible: true, nextGrade };
 };
