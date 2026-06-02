@@ -121,7 +121,7 @@ const register = async (req, res) => {
           nullable(employment_status) || 'active',
           disability_status === 'true' || disability_status === true || false,
           nullable(disability_type),
-          years_in_service || 0,
+          years_of_service || 0,
           nullable(date_of_birth)
         ]
       );
