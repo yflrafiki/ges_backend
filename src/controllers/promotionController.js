@@ -20,14 +20,6 @@ const getNextGrade = (currentGrade) => {
 
 const checkEligibility = (teacher) => {
   const nextGrade = getNextGrade(teacher.current_grade);
-  if (!nextGrade) {
-    return { eligible: false, reason: 'Teacher is already at the highest grade' };
-  }
-
-  const rules = ELIGIBILITY_RULES[nextGrade];
-  if (!rules) {
-    return { eligible: false, reason: 'No eligibility rules found for next grade' };
-  }
 
   // Calculate years of service: prefer explicit field, fall back to date_of_first_appointment
   let yearsOfService = Number(teacher.years_of_service);
@@ -37,25 +29,25 @@ const checkEligibility = (teacher) => {
       if (!isNaN(start)) {
         const now = new Date();
         const diffMs = now - start;
-        yearsOfService = Math.floor(diffMs / (365.25 * 24 * 60 * 60 * 1000));
+        yearsOfService = diffMs / (365.25 * 24 * 60 * 60 * 1000);
       }
     }
   }
 
-  const requiredYears = Number(rules.minYears) || 0;
   const haveYears = Number.isFinite(yearsOfService) ? yearsOfService : 0;
-  const meetsYears = rules.strict ? (haveYears > requiredYears) : (haveYears >= requiredYears);
-
-  if (!meetsYears) {
+  if (haveYears <= 3) {
     return {
       eligible: false,
-      reason: rules.strict
-        ? `More than ${requiredYears} years of service required for ${nextGrade}. You have ${haveYears} years.`
-        : `Minimum ${requiredYears} years of service required for ${nextGrade}. You have ${haveYears} years.`
+      reason: `More than 3 years of service required. You have ${haveYears.toFixed(2)} years.`
     };
   }
 
-  return { eligible: true, nextGrade };
+  if (!nextGrade) {
+    if (!teacher.current_grade) {
+      return { eligible: true, nextGrade: 'Grade C' };
+    }
+    return { eligible: false, reason: 'Teacher is already at the highest grade' };
+  }
 
   return { eligible: true, nextGrade };
 };
