@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS teachers (
   staff_id VARCHAR(100) UNIQUE NOT NULL,
   first_name VARCHAR(100) NOT NULL,
   last_name VARCHAR(100) NOT NULL,
+  title VARCHAR(20),
   date_of_birth DATE,
   phone VARCHAR(20),
   gender VARCHAR(10),
@@ -30,6 +31,18 @@ CREATE TABLE IF NOT EXISTS teachers (
   current_region VARCHAR(100),
   years_of_service INTEGER DEFAULT 0,
   qualification VARCHAR(100),
+  marital_status VARCHAR(20),
+  nationality VARCHAR(100),
+  hometown VARCHAR(100),
+  national_date_of_present_rank DATE,
+  years_in_current_rank INTEGER DEFAULT 0,
+  date_of_first_appointment DATE,
+  date_of_confirmation DATE,
+  date_of_current_posting DATE,
+  employment_status VARCHAR(50) DEFAULT 'active',
+  disability_status BOOLEAN DEFAULT false,
+  disability_type TEXT,
+  passport_photo VARCHAR(500),
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()
 );
@@ -97,5 +110,80 @@ CREATE TABLE IF NOT EXISTS audit_logs (
   entity_id UUID,
   details TEXT,
   ip_address VARCHAR(50),
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Promotion documents
+CREATE TABLE IF NOT EXISTS promotion_documents (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  application_id UUID REFERENCES applications(id),
+  teacher_id UUID REFERENCES teachers(id),
+  document_id UUID REFERENCES documents(id),
+  ocr_name_match BOOLEAN DEFAULT false,
+  ocr_staff_id_match BOOLEAN DEFAULT false,
+  ocr_validation TEXT,
+  hr_decision VARCHAR(50) DEFAULT 'manual_review',
+  hr_reviewed BOOLEAN DEFAULT false,
+  exam_access_granted BOOLEAN DEFAULT false,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Blockchain reference records
+CREATE TABLE IF NOT EXISTS blockchain_references (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  staff_id VARCHAR(100),
+  document_hash VARCHAR(500),
+  file_name VARCHAR(255),
+  uploaded_by UUID REFERENCES users(id),
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Exam management tables
+CREATE TABLE IF NOT EXISTS exams (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  title VARCHAR(255) NOT NULL,
+  description TEXT,
+  duration_minutes INTEGER DEFAULT 60,
+  total_marks INTEGER DEFAULT 0,
+  pass_mark INTEGER DEFAULT 0,
+  created_by UUID REFERENCES users(id),
+  status VARCHAR(50) DEFAULT 'draft',
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS exam_questions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  exam_id UUID REFERENCES exams(id) ON DELETE CASCADE,
+  question TEXT NOT NULL,
+  option_a TEXT,
+  option_b TEXT,
+  option_c TEXT,
+  option_d TEXT,
+  correct_answer VARCHAR(10),
+  marks INTEGER DEFAULT 1,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS exam_attempts (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  exam_id UUID REFERENCES exams(id),
+  teacher_id UUID REFERENCES teachers(id),
+  status VARCHAR(50) DEFAULT 'in_progress',
+  started_at TIMESTAMP,
+  submitted_at TIMESTAMP,
+  score INTEGER DEFAULT 0,
+  passed BOOLEAN DEFAULT false,
+  created_at TIMESTAMP DEFAULT NOW(),
+  updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS exam_answers (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  attempt_id UUID REFERENCES exam_attempts(id) ON DELETE CASCADE,
+  question_id UUID REFERENCES exam_questions(id),
+  selected_answer VARCHAR(50),
+  is_correct BOOLEAN DEFAULT false,
   created_at TIMESTAMP DEFAULT NOW()
 );

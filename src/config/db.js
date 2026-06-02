@@ -36,6 +36,13 @@ const initializeDatabase = async () => {
     const schemaSql = fs.readFileSync(schemaPath, 'utf8');
     await pool.query(schemaSql);
     console.log('Database schema initialized');
+
+    const migratePath = path.join(__dirname, 'migrate.sql');
+    if (fs.existsSync(migratePath)) {
+      const migrateSql = fs.readFileSync(migratePath, 'utf8');
+      await pool.query(migrateSql);
+      console.log('Database migrations applied');
+    }
   } catch (err) {
     console.error('Database schema initialization failed:', err);
     process.exit(1);
