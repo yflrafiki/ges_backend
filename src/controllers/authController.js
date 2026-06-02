@@ -4,10 +4,15 @@ const pool = require('../config/db');
 require('dotenv').config();
 
 const generateToken = (user) => {
+  const secret = process.env.JWT_SECRET;
+  const expiresIn = process.env.JWT_EXPIRES_IN;
+  if (!secret || !expiresIn) {
+    throw new Error('JWT_SECRET and JWT_EXPIRES_IN must be configured');
+  }
   return jwt.sign(
     { id: user.id, email: user.email, role: user.role },
-    process.env.JWT_SECRET,
-    { expiresIn: process.env.JWT_EXPIRES_IN }
+    secret,
+    { expiresIn }
   );
 };
 

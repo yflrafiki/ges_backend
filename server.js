@@ -8,6 +8,21 @@ const morgan = require('morgan');
 const multer = require('multer');
 require('dotenv').config();
 
+const requiredEnv = [
+  'DB_HOST',
+  'DB_PORT',
+  'DB_NAME',
+  'DB_USER',
+  'DB_PASSWORD',
+  'JWT_SECRET',
+  'JWT_EXPIRES_IN'
+];
+const missingEnv = requiredEnv.filter((key) => !process.env[key]);
+if (missingEnv.length > 0) {
+  console.error('Missing required environment variables:', missingEnv.join(', '));
+  process.exit(1);
+}
+
 const authRoutes = require('./src/routes/authRoutes');
 const teacherRoutes = require('./src/routes/teacherRoutes');
 const transferRoutes = require('./src/routes/transferRoutes');
