@@ -34,6 +34,8 @@ const documentRoutes = require('./src/routes/documentRoutes');
 const credentialRoutes = require('./src/routes/credentialRoutes');
 const reportRoutes = require('./src/routes/reportRoutes');
 const examRoutes = require('./src/routes/examRoutes');
+const changeRequestRoutes = require('./src/routes/changeRequestRoutes');
+const blockchainReferenceRoutes = require('./src/routes/blockchainReferenceRoutes');
 const path = require('path')
 
 const app = express();
@@ -49,9 +51,12 @@ const allowedOrigins = [
   'http://127.0.0.1:3000',
 ];
 
+const isLocalDevOrigin = (origin) =>
+  /^https?:\/\/(localhost|127\.0\.0\.1):\d+$/.test(origin);
+
 app.use(cors({
   origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin)) {
+    if (!origin || allowedOrigins.includes(origin) || isLocalDevOrigin(origin)) {
       return callback(null, true);
     }
     return callback(new Error(`CORS policy does not allow access from origin ${origin}`));
@@ -71,7 +76,11 @@ app.use('/api/documents', documentRoutes);
 app.use('/api/credentials', credentialRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/exams', examRoutes);
-app.use('/uploads', express.static(path.join(__dirname, 'src/uploads')));
+app.use('/api/change-requests', changeRequestRoutes);
+app.use('/api/blockchain', blockchainReferenceRoutes);
+// Only profile photos are public (plain <img> tags can't send auth headers).
+// Certificates/documents are never served statically — see GET /api/documents/:id/file.
+app.use('/uploads/photos', express.static(path.join(__dirname, 'src/uploads/photos')));
 
 // Test route
 app.get('/', (req, res) => {

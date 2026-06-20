@@ -5,7 +5,8 @@ const {
   updateMyProfile,
   getAllTeachers,
   getTeacherById,
-  updateTeacherById
+  updateTeacherById,
+  deleteTeacher
 } = require('../controllers/teacherController');
 const { protect, authorize } = require('../middleware/auth');
 const ensureTeacherProfile = require('../middleware/ensureTeacherProfile');
@@ -21,5 +22,6 @@ router.get('/', protect, authorize('hr_officer', 'admin'), getAllTeachers);
 router.get('/:id', protect, authorize('hr_officer', 'admin'), getTeacherById);
 router.put('/:id', protect, authorize('hr_officer', 'admin'),
   upload.single('passport_photo'), updateTeacherById);
+router.delete('/:id', protect, authorize('admin'), deleteTeacher);
 
 module.exports = router;

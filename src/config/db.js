@@ -11,7 +11,7 @@ if (missingDbEnv.length > 0) {
   process.exit(1);
 }
 
-const useSSL = process.env.NODE_ENV === 'production' || (process.env.DB_HOST && process.env.DB_HOST.includes('render.com'));
+const useSSL = Boolean(process.env.DB_HOST && process.env.DB_HOST.includes('render.com'));
 const poolConfig = useDatabaseUrl
   ? {
       connectionString: process.env.DATABASE_URL,
@@ -49,18 +49,22 @@ const initializeDatabase = async () => {
   }
 };
 
-pool.connect(async (err, client, release) => {
-  if (err) {
-    console.error('Database connection error:', err.message);
-  } else {
+const dbReady = new Promise((resolve, reject) => {
+  pool.connect(async (err, client, release) => {
+    if (err) {
+      console.error('Database connection error:', err.message);
+      reject(err);
+      return;
+    }
     console.log('Connected to PostgreSQL database');
     console.log('Verified PostgreSQL connection');
     try {
       await initializeDatabase();
+      resolve();
     } finally {
       release();
     }
-  }
+  });
 });
 
 pool.on('error', (err) => {
@@ -68,3 +72,4 @@ pool.on('error', (err) => {
 });
 
 module.exports = pool;
+module.exports.ready = dbReady;

@@ -32,13 +32,10 @@ const getMyProfile = async (req, res) => {
 
 // @route  PUT /api/teachers/profile
 // @access Teacher only
+// Teachers may only self-edit phone and marital_status directly (plus their passport photo).
+// Every other field requires a change request reviewed by HR — see changeRequestController.js.
 const updateMyProfile = async (req, res) => {
-  const {
-    phone, gender, subject_specialization, qualification,
-    title, marital_status, nationality, hometown, date_of_birth,
-    national_date_of_present_rank, years_in_current_rank,
-    disability_status, disability_type
-  } = req.body;
+  const { phone, marital_status } = req.body;
 
   try {
     const current = await pool.query(
@@ -53,17 +50,12 @@ const updateMyProfile = async (req, res) => {
     const teacher = current.rows[0];
 
     // Track changes
-    const fields = {
-      phone, gender, subject_specialization, qualification,
-      title, marital_status, nationality, hometown, date_of_birth,
-      national_date_of_present_rank, years_in_current_rank,
-      disability_status, disability_type
-    };
+    const fields = { phone, marital_status };
 
     for (const [field, newValue] of Object.entries(fields)) {
       if (newValue !== undefined && String(newValue) !== String(teacher[field])) {
         await pool.query(
-          `INSERT INTO teacher_history 
+          `INSERT INTO teacher_history
             (teacher_id, changed_field, old_value, new_value, changed_by)
            VALUES ($1, $2, $3, $4, $5)`,
           [teacher.id, field, teacher[field], newValue, req.user.id]
@@ -74,40 +66,23 @@ const updateMyProfile = async (req, res) => {
     // Handle passport photo upload
     let passport_photo = teacher.passport_photo;
     if (req.file) {
-      passport_photo = `uploads/${req.file.filename}`;
+      passport_photo = `uploads/photos/${req.file.filename}`;
     }
 
     const updated = await pool.query(
       `UPDATE teachers SET
         phone = COALESCE($1, phone),
-        gender = COALESCE($2, gender),
-        subject_specialization = COALESCE($3, subject_specialization),
-        qualification = COALESCE($4, qualification),
-        title = COALESCE($5, title),
-        marital_status = COALESCE($6, marital_status),
-        nationality = COALESCE($7, nationality),
-        hometown = COALESCE($8, hometown),
-        date_of_birth = COALESCE($9, date_of_birth),
-        national_date_of_present_rank = COALESCE($10, national_date_of_present_rank),
-        years_in_current_rank = COALESCE($11, years_in_current_rank),
-        disability_status = COALESCE($12, disability_status),
-        disability_type = COALESCE($13, disability_type),
-        passport_photo = COALESCE($14, passport_photo),
+        marital_status = COALESCE($2, marital_status),
+        passport_photo = COALESCE($3, passport_photo),
         updated_at = NOW()
-       WHERE user_id = $15
+       WHERE user_id = $4
        RETURNING *`,
-      [
-        phone, gender, subject_specialization, qualification,
-        title, marital_status, nationality, hometown, date_of_birth || null,
-        national_date_of_present_rank, years_in_current_rank,
-        disability_status, disability_type,
-        passport_photo, req.user.id
-      ]
+      [phone, marital_status, passport_photo, req.user.id]
     );
 
     await pool.query(
       'INSERT INTO audit_logs (user_id, action, entity, entity_id, details) VALUES ($1,$2,$3,$4,$5)',
-      [req.user.id, 'UPDATE_PROFILE', 'teachers', teacher.id, 'Teacher updated profile']
+      [req.user.id, 'UPDATE_PROFILE', 'teachers', teacher.id, 'Teacher updated phone/marital status/photo']
     );
 
     const updatedTeacher = updated.rows[0];
@@ -125,23 +100,31 @@ const updateMyProfile = async (req, res) => {
 };
 
 // @route  GET /api/teachers
-// @access HR Officer, Admin
+// @access HR Officer (own region only), Admin (all regions)
 const getAllTeachers = async (req, res) => {
   try {
-    const { district, region, grade, search } = req.query;
+    const { district, region, grade, qualification, search } = req.query;
+
+    // HR officers are scoped to their assigned region — they cannot see other regions.
+    // Admin has unrestricted, full visibility across all regions.
+    if (req.user.role === 'hr_officer' && !req.user.region) {
+      return res.status(403).json({ message: 'Your HR account has no region assigned. Contact an admin.' });
+    }
+    const effectiveRegion = req.user.role === 'hr_officer' ? req.user.region : region;
 
     let query = `
-      SELECT t.*, u.email 
-      FROM teachers t 
-      JOIN users u ON t.user_id = u.id 
+      SELECT t.*, u.email
+      FROM teachers t
+      JOIN users u ON t.user_id = u.id
       WHERE 1=1
     `;
     const params = [];
     let count = 1;
 
     if (district) { query += ` AND t.current_district = $${count++}`; params.push(district); }
-    if (region) { query += ` AND t.current_region = $${count++}`; params.push(region); }
+    if (effectiveRegion) { query += ` AND t.current_region = $${count++}`; params.push(effectiveRegion); }
     if (grade) { query += ` AND t.current_grade = $${count++}`; params.push(grade); }
+    if (qualification) { query += ` AND t.qualification = $${count++}`; params.push(qualification); }
     if (search) {
       query += ` AND (t.first_name ILIKE $${count} OR t.last_name ILIKE $${count} OR t.staff_id ILIKE $${count})`;
       params.push(`%${search}%`);
@@ -172,6 +155,10 @@ const getTeacherById = async (req, res) => {
 
     if (result.rows.length === 0) {
       return res.status(404).json({ message: 'Teacher not found' });
+    }
+
+    if (req.user.role === 'hr_officer' && result.rows[0].current_region !== req.user.region) {
+      return res.status(403).json({ message: 'This teacher is outside your assigned region' });
     }
 
     const history = await pool.query(
@@ -221,6 +208,10 @@ const updateTeacherById = async (req, res) => {
     }
 
     const teacher = current.rows[0];
+
+    if (req.user.role === 'hr_officer' && teacher.current_region !== req.user.region) {
+      return res.status(403).json({ message: 'This teacher is outside your assigned region' });
+    }
 
     // Track changes for HR-editable fields only
     const fields = {
@@ -292,10 +283,56 @@ const updateTeacherById = async (req, res) => {
   }
 };
 
+// @route  DELETE /api/teachers/:id
+// @access Admin only
+const deleteTeacher = async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const current = await client.query('SELECT * FROM teachers WHERE id = $1', [req.params.id]);
+
+    if (current.rows.length === 0) {
+      client.release();
+      return res.status(404).json({ message: 'Teacher not found' });
+    }
+
+    const teacher = current.rows[0];
+
+    await client.query('BEGIN');
+
+    // Tables referencing teachers.id without ON DELETE CASCADE must be cleared first.
+    await client.query('DELETE FROM exam_attempts WHERE teacher_id = $1', [teacher.id]);
+    await client.query('DELETE FROM promotion_documents WHERE teacher_id = $1', [teacher.id]);
+    await client.query('DELETE FROM credentials WHERE teacher_id = $1', [teacher.id]);
+    await client.query('DELETE FROM documents WHERE teacher_id = $1', [teacher.id]);
+    await client.query('DELETE FROM applications WHERE teacher_id = $1', [teacher.id]);
+    await client.query('DELETE FROM teacher_history WHERE teacher_id = $1', [teacher.id]);
+    // Keep historical audit_logs rows (don't delete them), just detach the FK so the user can be removed.
+    await client.query('UPDATE audit_logs SET user_id = NULL WHERE user_id = $1', [teacher.user_id]);
+    await client.query('DELETE FROM teachers WHERE id = $1', [teacher.id]);
+    await client.query('DELETE FROM users WHERE id = $1', [teacher.user_id]);
+
+    await client.query(
+      'INSERT INTO audit_logs (user_id, action, entity, entity_id, details) VALUES ($1,$2,$3,$4,$5)',
+      [req.user.id, 'DELETE_TEACHER', 'teachers', teacher.id,
+        `Admin deleted teacher ${teacher.staff_id} (${teacher.first_name} ${teacher.last_name})`]
+    );
+
+    await client.query('COMMIT');
+    res.json({ message: 'Teacher record deleted successfully' });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    console.error(err);
+    res.status(500).json({ message: 'Server error', error: err.message });
+  } finally {
+    client.release();
+  }
+};
+
 module.exports = {
   getMyProfile,
   updateMyProfile,
   getAllTeachers,
   getTeacherById,
-  updateTeacherById
+  updateTeacherById,
+  deleteTeacher
 };

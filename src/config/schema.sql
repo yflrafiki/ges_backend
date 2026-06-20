@@ -6,6 +6,12 @@ CREATE TABLE IF NOT EXISTS users (
   email VARCHAR(255) UNIQUE NOT NULL,
   password VARCHAR(255) NOT NULL,
   role VARCHAR(50) NOT NULL CHECK (role IN ('teacher', 'hr_officer', 'admin', 'examiner')),
+  region VARCHAR(100),
+  district VARCHAR(100),
+  email_verified BOOLEAN DEFAULT false,
+  email_verification_token VARCHAR(255),
+  email_verified_at TIMESTAMP,
+  created_by UUID REFERENCES users(id),
   created_at TIMESTAMP DEFAULT NOW()
 );
 
@@ -43,8 +49,37 @@ CREATE TABLE IF NOT EXISTS teachers (
   disability_status BOOLEAN DEFAULT false,
   disability_type TEXT,
   passport_photo VARCHAR(500),
+  house_number VARCHAR(50),
+  ghana_card_number VARCHAR(50) UNIQUE,
+  ghana_card_issue_date DATE,
+  ghana_card_expiry_date DATE,
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Schools attended by a teacher (with start/end dates)
+CREATE TABLE IF NOT EXISTS teacher_education (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  teacher_id UUID REFERENCES teachers(id) ON DELETE CASCADE,
+  school_name VARCHAR(255) NOT NULL,
+  start_date DATE,
+  end_date DATE,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Teacher-requested edits to restricted fields, pending HR approval
+CREATE TABLE IF NOT EXISTS change_requests (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  teacher_id UUID REFERENCES teachers(id) ON DELETE CASCADE,
+  field_name VARCHAR(100) NOT NULL,
+  current_value TEXT,
+  requested_value TEXT NOT NULL,
+  reason TEXT,
+  status VARCHAR(50) DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected')),
+  reviewed_by UUID REFERENCES users(id),
+  reviewed_at TIMESTAMP,
+  hr_notes TEXT,
+  created_at TIMESTAMP DEFAULT NOW()
 );
 
 -- Teacher record history (every update saved here)
@@ -136,8 +171,16 @@ CREATE TABLE IF NOT EXISTS promotion_documents (
 CREATE TABLE IF NOT EXISTS blockchain_references (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   staff_id VARCHAR(100),
+  teacher_name VARCHAR(255),
+  document_type VARCHAR(50),
   document_hash VARCHAR(500),
   file_name VARCHAR(255),
+  blockchain_tx_id VARCHAR(500),
+  org_msp VARCHAR(50),
+  issued_by VARCHAR(255),
+  issued_date DATE,
+  cert_id VARCHAR(255),
+  anchored_on_chain BOOLEAN DEFAULT false,
   uploaded_by UUID REFERENCES users(id),
   created_at TIMESTAMP DEFAULT NOW()
 );

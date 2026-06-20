@@ -235,6 +235,10 @@ const getAllPromotions = async (req, res) => {
   try {
     const { status } = req.query;
 
+    if (req.user.role === 'hr_officer' && !req.user.region) {
+      return res.status(403).json({ message: 'Your HR account has no region assigned. Contact an admin.' });
+    }
+
     let query = `
       SELECT a.*,
         t.first_name, t.last_name, t.staff_id,
@@ -246,10 +250,16 @@ const getAllPromotions = async (req, res) => {
        WHERE a.type = 'promotion'
     `;
     const params = [];
+    let count = 1;
 
     if (status) {
-      query += ` AND a.status = $1`;
+      query += ` AND a.status = $${count++}`;
       params.push(status);
+    }
+
+    if (req.user.role === 'hr_officer') {
+      query += ` AND t.current_region = $${count++}`;
+      params.push(req.user.region);
     }
 
     query += ` ORDER BY a.created_at DESC`;
@@ -304,6 +314,13 @@ const getPromotionById = async (req, res) => {
       }
     }
 
+    if (req.user.role === 'hr_officer') {
+      const teacherRegion = await pool.query('SELECT current_region FROM teachers WHERE id = $1', [result.rows[0].teacher_id]);
+      if (teacherRegion.rows[0]?.current_region !== req.user.region) {
+        return res.status(403).json({ message: 'This application is outside your assigned region' });
+      }
+    }
+
     res.json(result.rows[0]);
 
   } catch (err) {
@@ -339,6 +356,13 @@ const reviewPromotion = async (req, res) => {
 
     if (application.status !== 'pending' && application.status !== 'more_info') {
       return res.status(400).json({ message: 'Application has already been reviewed' });
+    }
+
+    if (req.user.role === 'hr_officer') {
+      const teacherRegion = await pool.query('SELECT current_region FROM teachers WHERE id = $1', [application.teacher_id]);
+      if (teacherRegion.rows[0]?.current_region !== req.user.region) {
+        return res.status(403).json({ message: 'This application is outside your assigned region' });
+      }
     }
 
     // Update application
@@ -468,12 +492,18 @@ const submitPromotionDocument = async (req, res) => {
 
     const nameMatch = validation?.nameMatch || false;
     const staffIdMatch = validation?.staffIdMatch || false;
+    const blockchainResult = validation?.blockchainCheck?.result || null;
 
-    // Auto decision based on OCR
+    // Auto decision based on OCR match against profile...
     let hrDecision = 'manual_review';
     if (nameMatch && staffIdMatch) {
       hrDecision = 'approved';
     } else if (!nameMatch && !staffIdMatch) {
+      hrDecision = 'manual_review';
+    }
+    // ...overridden by GTEC/NTC's on-chain verdict: a revoked or expired credential
+    // is never auto-approved regardless of how well the OCR text matched the profile.
+    if (['revoked', 'expired'].includes(blockchainResult)) {
       hrDecision = 'manual_review';
     }
 
@@ -532,8 +562,12 @@ const submitPromotionDocument = async (req, res) => {
 // @access HR Officer, Admin — see all promotion documents with OCR status
 const getPromotionDocuments = async (req, res) => {
   try {
-    const result = await pool.query(
-      `SELECT pd.*,
+    if (req.user.role === 'hr_officer' && !req.user.region) {
+      return res.status(403).json({ message: 'Your HR account has no region assigned. Contact an admin.' });
+    }
+
+    let query = `
+      SELECT pd.*,
         t.first_name, t.last_name, t.staff_id, t.current_grade,
         t.qualification, t.years_of_service,
         d.file_name, d.file_type, d.ocr_status, d.ocr_extracted_text,
@@ -544,8 +578,16 @@ const getPromotionDocuments = async (req, res) => {
        JOIN documents d ON pd.document_id = d.id
        JOIN applications a ON pd.application_id = a.id
        LEFT JOIN users u ON pd.reviewed_by = u.id
-       ORDER BY pd.created_at DESC`
-    );
+       WHERE 1=1
+    `;
+    const params = [];
+    if (req.user.role === 'hr_officer') {
+      query += ` AND t.current_region = $1`;
+      params.push(req.user.region);
+    }
+    query += ` ORDER BY pd.created_at DESC`;
+
+    const result = await pool.query(query, params);
 
     res.json({ count: result.rows.length, documents: result.rows });
 
@@ -565,6 +607,20 @@ const reviewPromotionDocument = async (req, res) => {
   }
 
   try {
+    if (req.user.role === 'hr_officer') {
+      const pd = await pool.query(
+        `SELECT t.current_region FROM promotion_documents pd
+         JOIN teachers t ON pd.teacher_id = t.id WHERE pd.id = $1`,
+        [req.params.id]
+      );
+      if (pd.rows.length === 0) {
+        return res.status(404).json({ message: 'Promotion document not found' });
+      }
+      if (pd.rows[0].current_region !== req.user.region) {
+        return res.status(403).json({ message: 'This document is outside your assigned region' });
+      }
+    }
+
     const grantExamAccess = decision === 'approved';
 
     const result = await pool.query(

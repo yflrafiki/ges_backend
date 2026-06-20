@@ -4,57 +4,119 @@ const pool = require('../config/db');
 // @access Admin, HR Officer
 const getDashboardSummary = async (req, res) => {
   try {
-    // Total teachers
-    const teachersCount = await pool.query('SELECT COUNT(*) FROM teachers');
+    const isHr = req.user.role === 'hr_officer';
+    if (isHr && !req.user.region) {
+      return res.status(403).json({ message: 'Your HR account has no region assigned. Contact an admin.' });
+    }
 
-    // Total applications
-    const applicationsCount = await pool.query('SELECT COUNT(*) FROM applications');
+    // Total teachers (HR scoped to their own region)
+    const teachersCount = isHr
+      ? await pool.query('SELECT COUNT(*) FROM teachers WHERE current_region = $1', [req.user.region])
+      : await pool.query('SELECT COUNT(*) FROM teachers');
 
-    // Transfer stats
-    const transferStats = await pool.query(`
-      SELECT status, COUNT(*) as count
-      FROM applications
-      WHERE type = 'transfer'
-      GROUP BY status
-    `);
+    // Total applications — for HR, only ones relevant to their region:
+    // transfers requesting their region, promotions/others from teachers currently in their region.
+    const applicationsCount = isHr
+      ? await pool.query(
+          `SELECT COUNT(*) FROM applications a
+           JOIN teachers t ON a.teacher_id = t.id
+           WHERE (a.type = 'transfer' AND a.requested_region = $1)
+              OR (a.type != 'transfer' AND t.current_region = $1)`,
+          [req.user.region]
+        )
+      : await pool.query('SELECT COUNT(*) FROM applications');
 
-    // Promotion stats
-    const promotionStats = await pool.query(`
-      SELECT status, COUNT(*) as count
-      FROM applications
-      WHERE type = 'promotion'
-      GROUP BY status
-    `);
+    // Transfer stats — scoped to transfers requesting the HR's region
+    const transferStats = isHr
+      ? await pool.query(
+          `SELECT status, COUNT(*) as count
+           FROM applications
+           WHERE type = 'transfer' AND requested_region = $1
+           GROUP BY status`,
+          [req.user.region]
+        )
+      : await pool.query(`
+          SELECT status, COUNT(*) as count
+          FROM applications
+          WHERE type = 'transfer'
+          GROUP BY status
+        `);
 
-    // Credential stats
-    const credentialStats = await pool.query(`
-      SELECT verification_status, COUNT(*) as count
-      FROM credentials
-      GROUP BY verification_status
-    `);
+    // Promotion stats — scoped to teachers currently in the HR's region
+    const promotionStats = isHr
+      ? await pool.query(
+          `SELECT a.status, COUNT(*) as count
+           FROM applications a
+           JOIN teachers t ON a.teacher_id = t.id
+           WHERE a.type = 'promotion' AND t.current_region = $1
+           GROUP BY a.status`,
+          [req.user.region]
+        )
+      : await pool.query(`
+          SELECT status, COUNT(*) as count
+          FROM applications
+          WHERE type = 'promotion'
+          GROUP BY status
+        `);
 
-    // Teachers by region
-    const teachersByRegion = await pool.query(`
-      SELECT current_region, COUNT(*) as count
-      FROM teachers
-      GROUP BY current_region
-      ORDER BY count DESC
-    `);
+    // Credential stats — scoped to teachers currently in the HR's region
+    const credentialStats = isHr
+      ? await pool.query(
+          `SELECT c.verification_status, COUNT(*) as count
+           FROM credentials c
+           JOIN teachers t ON c.teacher_id = t.id
+           WHERE t.current_region = $1
+           GROUP BY c.verification_status`,
+          [req.user.region]
+        )
+      : await pool.query(`
+          SELECT verification_status, COUNT(*) as count
+          FROM credentials
+          GROUP BY verification_status
+        `);
 
-    // Teachers by grade
-    const teachersByGrade = await pool.query(`
-      SELECT current_grade, COUNT(*) as count
-      FROM teachers
-      GROUP BY current_grade
-      ORDER BY count DESC
-    `);
+    // Teachers by region (HR only ever has one region, so just their own count)
+    const teachersByRegion = isHr
+      ? { rows: [{ current_region: req.user.region, count: String(teachersCount.rows[0].count) }] }
+      : await pool.query(`
+          SELECT current_region, COUNT(*) as count
+          FROM teachers
+          GROUP BY current_region
+          ORDER BY count DESC
+        `);
 
-    // Recent applications (last 7 days)
-    const recentApplications = await pool.query(`
-      SELECT COUNT(*) as count
-      FROM applications
-      WHERE created_at >= NOW() - INTERVAL '7 days'
-    `);
+    // Teachers by grade (HR scoped to their own region)
+    const teachersByGrade = isHr
+      ? await pool.query(
+          `SELECT current_grade, COUNT(*) as count
+           FROM teachers
+           WHERE current_region = $1
+           GROUP BY current_grade
+           ORDER BY count DESC`,
+          [req.user.region]
+        )
+      : await pool.query(`
+          SELECT current_grade, COUNT(*) as count
+          FROM teachers
+          GROUP BY current_grade
+          ORDER BY count DESC
+        `);
+
+    // Recent applications (last 7 days), same region scoping as applicationsCount
+    const recentApplications = isHr
+      ? await pool.query(
+          `SELECT COUNT(*) as count FROM applications a
+           JOIN teachers t ON a.teacher_id = t.id
+           WHERE a.created_at >= NOW() - INTERVAL '7 days'
+             AND ((a.type = 'transfer' AND a.requested_region = $1)
+               OR (a.type != 'transfer' AND t.current_region = $1))`,
+          [req.user.region]
+        )
+      : await pool.query(`
+          SELECT COUNT(*) as count
+          FROM applications
+          WHERE created_at >= NOW() - INTERVAL '7 days'
+        `);
 
     res.json({
       summary: {
@@ -80,6 +142,10 @@ const getDashboardSummary = async (req, res) => {
 const getTransferReport = async (req, res) => {
   try {
     const { from_date, to_date, region, status } = req.query;
+
+    if (req.user.role === 'hr_officer' && !req.user.region) {
+      return res.status(403).json({ message: 'Your HR account has no region assigned. Contact an admin.' });
+    }
 
     let query = `
       SELECT 
@@ -107,7 +173,10 @@ const getTransferReport = async (req, res) => {
       params.push(to_date);
     }
 
-    if (region) {
+    if (req.user.role === 'hr_officer') {
+      query += ` AND a.requested_region = $${count++}`;
+      params.push(req.user.region);
+    } else if (region) {
       query += ` AND a.requested_region = $${count++}`;
       params.push(region);
     }
@@ -147,6 +216,10 @@ const getPromotionReport = async (req, res) => {
   try {
     const { from_date, to_date, status, grade } = req.query;
 
+    if (req.user.role === 'hr_officer' && !req.user.region) {
+      return res.status(403).json({ message: 'Your HR account has no region assigned. Contact an admin.' });
+    }
+
     let query = `
       SELECT
         a.id, a.status, a.reason, a.created_at, a.reviewed_at, a.hr_notes,
@@ -182,6 +255,11 @@ const getPromotionReport = async (req, res) => {
       params.push(grade);
     }
 
+    if (req.user.role === 'hr_officer') {
+      query += ` AND t.current_region = $${count++}`;
+      params.push(req.user.region);
+    }
+
     query += ` ORDER BY a.created_at DESC`;
 
     const result = await pool.query(query, params);
@@ -208,18 +286,30 @@ const getPromotionReport = async (req, res) => {
 // @access Admin, HR Officer
 const getCredentialReport = async (req, res) => {
   try {
-    const result = await pool.query(`
+    if (req.user.role === 'hr_officer' && !req.user.region) {
+      return res.status(403).json({ message: 'Your HR account has no region assigned. Contact an admin.' });
+    }
+
+    let query = `
       SELECT
         c.id, c.verification_status, c.document_hash,
         c.blockchain_tx_id, c.verified_at, c.created_at,
         d.file_name, d.file_type, d.ocr_status,
         t.first_name, t.last_name, t.staff_id,
-        t.current_school, t.current_district
+        t.current_school, t.current_district, t.current_region
       FROM credentials c
       JOIN documents d ON c.document_id = d.id
       JOIN teachers t ON c.teacher_id = t.id
-      ORDER BY c.created_at DESC
-    `);
+      WHERE 1=1
+    `;
+    const params = [];
+    if (req.user.role === 'hr_officer') {
+      query += ` AND t.current_region = $1`;
+      params.push(req.user.region);
+    }
+    query += ` ORDER BY c.created_at DESC`;
+
+    const result = await pool.query(query, params);
 
     const stats = {
       total: result.rows.length,
@@ -307,6 +397,10 @@ const getTeacherHistory = async (req, res) => {
 
     if (teacherResult.rows.length === 0) {
       return res.status(404).json({ message: 'Teacher not found' });
+    }
+
+    if (req.user.role === 'hr_officer' && teacherResult.rows[0].current_region !== req.user.region) {
+      return res.status(403).json({ message: 'This teacher is outside your assigned region' });
     }
 
     // Get full change history

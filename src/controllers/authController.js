@@ -1,6 +1,8 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 const pool = require('../config/db');
+const { sendVerificationEmail } = require('../services/emailService');
 require('dotenv').config();
 
 const generateToken = (user) => {
@@ -10,13 +12,14 @@ const generateToken = (user) => {
     throw new Error('JWT_SECRET and JWT_EXPIRES_IN must be configured');
   }
   return jwt.sign(
-    { id: user.id, email: user.email, role: user.role },
+    { id: user.id, email: user.email, role: user.role, region: user.region || null, district: user.district || null },
     secret,
     { expiresIn }
   );
 };
 
 // @route  POST /api/auth/register
+// @access Admin only
 const register = async (req, res) => {
   console.log('BODY RECEIVED:', req.body);
 
@@ -24,13 +27,17 @@ const register = async (req, res) => {
 
   const {
     email, password, role,
+    // HR scoping
+    region, district,
     // Basic
     staff_id, first_name, last_name, date_of_birth,
     phone, gender, qualification,
     subject_specialization, current_grade, current_school,
     current_district, current_region,
     // Personal
-    title, marital_status, nationality, hometown,
+    title, marital_status, nationality, hometown, house_number,
+    // Identification
+    ghana_card_number, ghana_card_issue_date, ghana_card_expiry_date,
     // Rank
     national_date_of_present_rank, years_in_current_rank,
     // Employment
@@ -75,27 +82,37 @@ const register = async (req, res) => {
 
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
+    const emailVerificationToken = crypto.randomBytes(32).toString('hex');
 
     const userResult = await client.query(
-      'INSERT INTO users (email, password, role) VALUES ($1, $2, $3) RETURNING id, email, role',
-      [normalizedEmail, hashedPassword, normalizedRole]
+      `INSERT INTO users (email, password, role, region, district, email_verification_token, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
+       RETURNING id, email, role, region, district`,
+      [
+        normalizedEmail, hashedPassword, normalizedRole,
+        normalizedRole === 'hr_officer' ? nullable(region) : null,
+        normalizedRole === 'hr_officer' ? nullable(district) : null,
+        emailVerificationToken,
+        req.user ? req.user.id : null
+      ]
     );
     const user = userResult.rows[0];
 
     if (user.role === 'teacher') {
       await client.query(
-        `INSERT INTO teachers 
+        `INSERT INTO teachers
           (user_id, staff_id, first_name, last_name, phone, gender,
           subject_specialization, current_grade, current_school,
           current_district, current_region, qualification,
-          title, marital_status, nationality, hometown,
+          title, marital_status, nationality, hometown, house_number,
+          ghana_card_number, ghana_card_issue_date, ghana_card_expiry_date,
           national_date_of_present_rank, years_in_current_rank,
           date_of_first_appointment, date_of_confirmation,
           date_of_current_posting, employment_status,
           disability_status, disability_type,
           years_of_service, date_of_birth)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,
-                 $13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26)`,
+                 $13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30)`,
         [
           user.id,
           nullable(staff_id),
@@ -113,6 +130,10 @@ const register = async (req, res) => {
           nullable(marital_status),
           nullable(nationality),
           nullable(hometown),
+          nullable(house_number),
+          nullable(ghana_card_number),
+          nullable(ghana_card_issue_date),
+          nullable(ghana_card_expiry_date),
           nullable(national_date_of_present_rank),
           years_in_current_rank || 0,
           nullable(date_of_first_appointment),
@@ -129,17 +150,20 @@ const register = async (req, res) => {
 
     await client.query(
       'INSERT INTO audit_logs (user_id, action, entity, details) VALUES ($1, $2, $3, $4)',
-      [user.id, 'REGISTER', 'users', `New ${user.role} registered`]
+      [req.user ? req.user.id : user.id, 'REGISTER', 'users',
+        `New ${user.role} account created${req.user ? ` by admin ${req.user.email}` : ''}: ${user.email}`]
     );
 
     await client.query('COMMIT');
+
+    sendVerificationEmail(user.email, emailVerificationToken);
 
     const token = generateToken(user);
 
     res.status(201).json({
       message: 'Registration successful',
       token,
-      user: { id: user.id, email: user.email, role: user.role }
+      user: { id: user.id, email: user.email, role: user.role, region: user.region, district: user.district }
     });
 
   } catch (err) {
@@ -259,4 +283,39 @@ const changePassword = async (req, res) => {
   }
 };
 
-module.exports = { register, login, getMe, changePassword };
+// @route  POST /api/auth/verify-email
+const verifyEmail = async (req, res) => {
+  const { token } = req.body;
+
+  if (!token) {
+    return res.status(400).json({ message: 'Verification token is required' });
+  }
+
+  try {
+    const result = await pool.query(
+      'SELECT id, email_verified FROM users WHERE email_verification_token = $1',
+      [token]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(400).json({ message: 'Invalid or expired verification token' });
+    }
+
+    if (result.rows[0].email_verified) {
+      return res.json({ message: 'Email already verified' });
+    }
+
+    await pool.query(
+      `UPDATE users SET email_verified = true, email_verified_at = NOW(), email_verification_token = NULL
+       WHERE id = $1`,
+      [result.rows[0].id]
+    );
+
+    res.json({ message: 'Email verified successfully' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error', error: err.message });
+  }
+};
+
+module.exports = { register, login, getMe, changePassword, verifyEmail };

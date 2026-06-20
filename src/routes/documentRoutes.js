@@ -4,6 +4,7 @@ const {
   uploadDocument,
   getMyDocuments,
   getDocumentById,
+  getDocumentFile,
   getTeacherDocuments
 } = require('../controllers/documentController');
 const { protect, authorize } = require('../middleware/auth');
@@ -20,5 +21,6 @@ router.get('/teacher/:teacherId', protect, authorize('hr_officer', 'admin'), get
 
 // Mixed access
 router.get('/:id', protect, authorize('teacher', 'hr_officer', 'admin'), getDocumentById);
+router.get('/:id/file', protect, authorize('teacher', 'hr_officer', 'admin'), getDocumentFile);
 
 module.exports = router;

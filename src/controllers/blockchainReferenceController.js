@@ -1,9 +1,9 @@
 const pool = require('../config/db');
 const crypto = require('crypto');
-const path = require('path');
 const fs = require('fs');
 const { extractTextFromFile, parseDocumentFields } = require('../services/ocrService');
-const { verifyAgainstReference } = require('../services/blockchainVerifyService');
+const { verifyAgainstReference, qualCertId, licenseCertId } = require('../services/blockchainVerifyService');
+const { invokeChaincodeWithTxId, isFabricAvailable } = require('../services/fabricClient');
 
 const generateHash = (data) => {
   return crypto.createHash('sha256').update(data).digest('hex');
@@ -15,22 +15,22 @@ const generateTxId = () => {
   return `${timestamp}${random}`;
 };
 
-// Simulate storing on blockchain nodes
-const anchorToNodes = async (data) => {
+// Simulated anchoring, used only when the Fabric network isn't reachable.
+const anchorToNodesSimulated = async (data) => {
   const nodes = [
     { id: 'GES', role: 'orderer', msp: 'GESMSP' },
     { id: 'GTEC', role: 'peer', msp: 'GTECMSP' },
     { id: 'NTC', role: 'peer', msp: 'NTCMSP' },
   ];
 
-  console.log(`\n=== ANCHORING TO BLOCKCHAIN ===`);
+  console.log(`\n=== ANCHORING TO BLOCKCHAIN (SIMULATION) ===`);
   for (const node of nodes) {
     await new Promise(r => setTimeout(r, 200));
     console.log(`[${node.role.toUpperCase()}] ${node.id} (${node.msp}): endorsed`);
   }
   console.log(`Consensus: 3/3 nodes — COMMITTED ✓`);
-  console.log(`===============================\n`);
-  return nodes;
+  console.log(`==============================================\n`);
+  return { txId: generateTxId(), mode: 'simulation' };
 };
 
 // @route  POST /api/blockchain/upload-reference
@@ -52,34 +52,86 @@ const uploadReference = async (req, res) => {
     // Generate hash from file content
     const fileBuffer = fs.readFileSync(req.file.path);
     const documentHash = generateHash(fileBuffer);
-    const txId = generateTxId();
 
-    // Determine which org anchors based on document type
-    const orgMsp = document_type === 'degree' || document_type === 'diploma'
-      ? 'GTECMSP'
-      : document_type === 'teaching_license' || document_type === 'ntc_certificate'
-      ? 'NTCMSP'
-      : 'GESMSP';
+    // OCR the certificate so we anchor what's actually printed on it, not just
+    // what the admin typed — falls back to manual form fields if OCR finds nothing.
+    const ocrResult = await extractTextFromFile(req.file.path);
+    const ocrFields = ocrResult.success ? parseDocumentFields(ocrResult.text) : {};
 
-    // Anchor to blockchain nodes
-    await anchorToNodes({ staff_id, teacher_name, documentHash, orgMsp });
+    const isQualification = document_type === 'degree' || document_type === 'diploma';
+    const isLicense = document_type === 'teaching_license' || document_type === 'ntc_certificate';
+    const orgMsp = isQualification ? 'GTECMSP' : isLicense ? 'NTCMSP' : 'GESMSP';
 
-    // Save to database
+    const staffIdUpper = staff_id.toUpperCase();
+    const teacherNameUpper = teacher_name.toUpperCase();
+    const certId = isLicense ? licenseCertId(staffIdUpper) : qualCertId(staffIdUpper);
+
+    let anchorOutcome;
+    let anchoredOnChain = false;
+
+    if (isFabricAvailable() && (isQualification || isLicense)) {
+      try {
+        if (isQualification) {
+          // GESMSP is required to satisfy the channel's 2-of-3 majority endorsement
+          // policy; GTECMSP must also endorse so its peer actually stores the
+          // private qualification record (implicit collections are peer-local).
+          const { txId } = await invokeChaincodeWithTxId('AnchorQualification', [
+            certId,
+            teacherNameUpper,
+            issued_by || ocrFields.institution || '',
+            ocrFields.qualification || document_type,
+            '', // fieldOfStudy — not currently OCR-extracted
+            issued_date || ''
+          ], { endorsingOrganizations: ['GESMSP', 'GTECMSP'] });
+          anchorOutcome = { txId, mode: 'fabric' };
+        } else {
+          const { txId } = await invokeChaincodeWithTxId('AnchorLicense', [
+            certId,
+            teacherNameUpper,
+            req.body.professional_status || '',
+            req.body.subject_specialism || '',
+            req.body.teaching_level || '',
+            issued_date || '',
+            req.body.expiry_date || ''
+          ], { endorsingOrganizations: ['GESMSP', 'NTCMSP'] });
+          anchorOutcome = { txId, mode: 'fabric' };
+        }
+        anchoredOnChain = true;
+      } catch (err) {
+        if (/already anchored/i.test(err.message)) {
+          return res.status(409).json({
+            message: `A ${isLicense ? 'license' : 'qualification'} for staff ID ${staffIdUpper} is already anchored on-chain (certId: ${certId}). Revoke it first if you need to replace it.`,
+            certId
+          });
+        }
+        console.error('On-chain anchoring failed, falling back to simulation:', err.message);
+        anchorOutcome = await anchorToNodesSimulated({ staff_id: staffIdUpper, teacher_name: teacherNameUpper, documentHash, orgMsp });
+      }
+    } else {
+      // GES-type documents (appointment letters, service records) have no
+      // GTEC/NTC chaincode function to anchor into — record the hash only.
+      anchorOutcome = await anchorToNodesSimulated({ staff_id: staffIdUpper, teacher_name: teacherNameUpper, documentHash, orgMsp });
+    }
+
+    // Save to database (this is a local index/cache — the source of truth for
+    // qualification/license content lives on-chain once anchoredOnChain is true)
     const result = await pool.query(
       `INSERT INTO blockchain_references
         (staff_id, teacher_name, document_type, document_hash,
-         blockchain_tx_id, org_msp, issued_by, issued_date, uploaded_by)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+         blockchain_tx_id, org_msp, issued_by, issued_date, cert_id, anchored_on_chain, uploaded_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
        RETURNING *`,
       [
-        staff_id.toUpperCase(),
-        teacher_name.toUpperCase(),
+        staffIdUpper,
+        teacherNameUpper,
         document_type,
         documentHash,
-        txId,
+        anchorOutcome.txId,
         orgMsp,
         issued_by || null,
         issued_date || null,
+        (isQualification || isLicense) ? certId : null,
+        anchoredOnChain,
         req.user.id
       ]
     );
@@ -88,18 +140,27 @@ const uploadReference = async (req, res) => {
       'INSERT INTO audit_logs (user_id, action, entity, entity_id, details) VALUES ($1,$2,$3,$4,$5)',
       [req.user.id, 'BLOCKCHAIN_REFERENCE_UPLOAD', 'blockchain_references',
         result.rows[0].id,
-        `Reference uploaded for ${teacher_name} (${staff_id}). Type: ${document_type}. TX: ${txId}`]
+        `Reference uploaded for ${teacherNameUpper} (${staffIdUpper}). Type: ${document_type}. Mode: ${anchorOutcome.mode}. TX: ${anchorOutcome.txId}`]
     );
 
     res.status(201).json({
-      message: 'Document anchored to blockchain successfully',
+      message: anchoredOnChain
+        ? `Document anchored on the real Fabric network by ${orgMsp.replace('MSP', '')}`
+        : 'Document recorded (simulation mode — Fabric network not reachable, or document type has no on-chain anchor function)',
       reference: result.rows[0],
       blockchain: {
-        transaction_id: txId,
+        transaction_id: anchorOutcome.txId,
         document_hash: documentHash,
         org_msp: orgMsp,
-        nodes_confirmed: 3,
-        consensus: '3/3'
+        cert_id: (isQualification || isLicense) ? certId : null,
+        mode: anchorOutcome.mode,
+        anchored_on_chain: anchoredOnChain
+      },
+      ocr: {
+        extracted_name: ocrFields.name || null,
+        extracted_staff_id: ocrFields.staffId || null,
+        extracted_qualification: ocrFields.qualification || null,
+        extracted_institution: ocrFields.institution || null
       }
     });
 

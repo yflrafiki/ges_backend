@@ -36,17 +36,31 @@ services:
       DB_PASSWORD: 123nanayaw
       JWT_SECRET: ges_super_secret_jwt_key_2026
       JWT_EXPIRES_IN: 7d
+      FABRIC_CRYPTO_PATH: /app/fabric-crypto
+      FABRIC_CHANNEL: geschannel
+      FABRIC_CHAINCODE: ges-verify
+      FABRIC_GES_PEER: peer0.ges.ges.edu.gh:7051
+      FABRIC_GES_PEER_HOST: peer0.ges.ges.edu.gh
     volumes:
       - uploads_data:/app/src/uploads
+      - ../ges_final_year_fabric/crypto-config:/app/fabric-crypto:ro
     depends_on:
       postgres:
         condition: service_healthy
     networks:
       - ges_network
+      - fabric_network
 
 networks:
   ges_network:
     driver: bridge
+  fabric_network:
+    external: true
+    # Run `docker network ls | grep ges-network` to confirm this matches your setup.
+    # Scripts in ges_final_year_fabric/ pin COMPOSE_PROJECT_NAME=ges-network, which
+    # produces "ges-network_ges-network" — but a network bootstrapped before that fix
+    # (or any other way) may be named "ges_final_year_fabric_ges-network" instead.
+    name: ges_final_year_fabric_ges-network
 
 volumes:
   postgres_data:

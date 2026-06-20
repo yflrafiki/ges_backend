@@ -101,9 +101,13 @@ const getAllTransfers = async (req, res) => {
   try {
     const { status, region, district } = req.query;
 
+    if (req.user.role === 'hr_officer' && !req.user.region) {
+      return res.status(403).json({ message: 'Your HR account has no region assigned. Contact an admin.' });
+    }
+
     let query = `
-      SELECT a.*, 
-        t.first_name, t.last_name, t.staff_id, 
+      SELECT a.*,
+        t.first_name, t.last_name, t.staff_id,
         t.current_school, t.current_district, t.current_region,
         u.email as reviewed_by_email
        FROM applications a
@@ -119,14 +123,19 @@ const getAllTransfers = async (req, res) => {
       params.push(status);
     }
 
-    if (region) {
-      query += ` AND a.requested_region = $${count++}`;
-      params.push(region);
-    }
-
     if (district) {
       query += ` AND a.requested_district = $${count++}`;
       params.push(district);
+    }
+
+    // HR officers only see transfer requests INTO their own region — the receiving
+    // region's HR is the one who approves staff moving in, not the originating region.
+    if (req.user.role === 'hr_officer') {
+      query += ` AND a.requested_region = $${count++}`;
+      params.push(req.user.region);
+    } else if (region) {
+      query += ` AND a.requested_region = $${count++}`;
+      params.push(region);
     }
 
     query += ` ORDER BY a.created_at DESC`;
@@ -175,6 +184,10 @@ const getTransferById = async (req, res) => {
       }
     }
 
+    if (req.user.role === 'hr_officer' && result.rows[0].requested_region !== req.user.region) {
+      return res.status(403).json({ message: 'This transfer request is not into your assigned region' });
+    }
+
     res.json(result.rows[0]);
 
   } catch (err) {
@@ -211,6 +224,10 @@ const reviewTransfer = async (req, res) => {
 
     if (application.status !== 'pending' && application.status !== 'more_info') {
       return res.status(400).json({ message: 'Application has already been reviewed' });
+    }
+
+    if (req.user.role === 'hr_officer' && application.requested_region !== req.user.region) {
+      return res.status(403).json({ message: 'This transfer request is not into your assigned region' });
     }
 
     // Update application status
