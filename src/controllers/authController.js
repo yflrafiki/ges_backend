@@ -318,4 +318,33 @@ const verifyEmail = async (req, res) => {
   }
 };
 
-module.exports = { register, login, getMe, changePassword, verifyEmail };
+// @route  GET /api/auth/users?role=hr_officer&region=Greater%20Accra
+// @access Admin only
+const getUsersByRole = async (req, res) => {
+  try {
+    const { role, region } = req.query;
+
+    if (!role) {
+      return res.status(400).json({ message: 'role query parameter is required' });
+    }
+
+    let query = 'SELECT id, email, role, region, district, created_at FROM users WHERE role = $1';
+    const params = [role];
+
+    if (region) {
+      query += ' AND region = $2';
+      params.push(region);
+    }
+
+    query += ' ORDER BY created_at DESC';
+
+    const result = await pool.query(query, params);
+    res.json({ count: result.rows.length, users: result.rows });
+
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error', error: err.message });
+  }
+};
+
+module.exports = { register, login, getMe, changePassword, verifyEmail, getUsersByRole };
