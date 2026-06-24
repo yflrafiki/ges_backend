@@ -85,3 +85,8 @@ CREATE TABLE IF NOT EXISTS change_requests (
   hr_notes TEXT,
   created_at TIMESTAMP DEFAULT NOW()
 );
+
+ALTER TABLE change_requests
+  ADD COLUMN IF NOT EXISTS document_path VARCHAR(500),
+  ADD COLUMN IF NOT EXISTS document_name VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS document_hash VARCHAR(64);
