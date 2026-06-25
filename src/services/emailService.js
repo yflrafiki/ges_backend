@@ -8,6 +8,10 @@ const transporter = smtpConfigured
       port: parseInt(process.env.SMTP_PORT, 10) || 587,
       secure: process.env.SMTP_SECURE === 'true',
       auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+      // Some hosts (e.g. Render) have broken/missing IPv6 egress, which makes
+      // connections to providers whose SMTP resolves to both A and AAAA records
+      // (like Gmail) fail with ENETUNREACH. Force IPv4 to avoid that.
+      family: 4,
     })
   : null;
 
