@@ -51,7 +51,7 @@ const register = async (req, res) => {
     disability_status, disability_type,
     // Service
     years_of_service
-  } = req.body;
+  } = req.body || {};
 
   const normalizedEmail = String(email || '').trim().toLowerCase();
   const normalizedRole = String(role || '').trim().toLowerCase();
@@ -181,11 +181,11 @@ const register = async (req, res) => {
     await client.query('ROLLBACK');
     console.error('REGISTER ERROR:', err.stack || err);
     console.error('REGISTER BODY:', {
-      email: req.body.email,
-      role: req.body.role,
-      staff_id: req.body.staff_id,
-      first_name: req.body.first_name,
-      last_name: req.body.last_name,
+      email: req.body?.email,
+      role: req.body?.role,
+      staff_id: req.body?.staff_id,
+      first_name: req.body?.first_name,
+      last_name: req.body?.last_name,
     });
 
     // Postgres unique_violation — covers constraints not pre-checked above
@@ -203,7 +203,7 @@ const register = async (req, res) => {
 // @route  POST /api/auth/login
 const login = async (req, res) => {
   console.log('LOGIN BODY:', req.body);
-  const { email, password } = req.body;
+  const { email, password } = req.body || {};
   const normalizedEmail = String(email || '').trim().toLowerCase();
 
   try {
@@ -331,7 +331,7 @@ const changePassword = async (req, res) => {
 // Verifies and immediately logs the user in (returns a token), so they don't
 // have to submit the code then separately log in again right after.
 const verifyEmailCode = async (req, res) => {
-  const { email, code } = req.body;
+  const { email, code } = req.body || {};
   const normalizedEmail = String(email || '').trim().toLowerCase();
 
   if (!normalizedEmail || !code) {
@@ -386,7 +386,7 @@ const verifyEmailCode = async (req, res) => {
 // @route  POST /api/auth/resend-verification-code
 // @access Public — identified by email only
 const resendVerificationCode = async (req, res) => {
-  const { email } = req.body;
+  const { email } = req.body || {};
   const normalizedEmail = String(email || '').trim().toLowerCase();
 
   if (!normalizedEmail) {
