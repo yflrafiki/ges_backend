@@ -11,16 +11,9 @@ const transporter = smtpConfigured
     })
   : null;
 
-const buildVerificationLink = (token) => {
-  const base = process.env.APP_BASE_URL || 'http://localhost:5173';
-  return `${base}/verify-email?token=${token}`;
-};
-
-const sendVerificationEmail = async (toEmail, token) => {
-  const link = buildVerificationLink(token);
-
+const sendVerificationCode = async (toEmail, code) => {
   if (!transporter) {
-    console.log(`[email-verification] SMTP not configured. Verification link for ${toEmail}: ${link}`);
+    console.log(`[email-verification] SMTP not configured. Verification code for ${toEmail}: ${code}`);
     return;
   }
 
@@ -28,12 +21,16 @@ const sendVerificationEmail = async (toEmail, token) => {
     await transporter.sendMail({
       from: process.env.SMTP_FROM || process.env.SMTP_USER,
       to: toEmail,
-      subject: 'Verify your GES account email',
-      html: `<p>Welcome to GES. Please verify your email by clicking the link below:</p><p><a href="${link}">${link}</a></p>`,
+      subject: 'Your GES verification code',
+      html: `
+        <p>Welcome to GES. Use the code below to verify your email address:</p>
+        <p style="font-size:28px;font-weight:bold;letter-spacing:4px;">${code}</p>
+        <p>This code expires in 15 minutes.</p>
+      `,
     });
   } catch (err) {
-    console.error('Failed to send verification email:', err.message);
+    console.error('Failed to send verification code email:', err.message);
   }
 };
 
-module.exports = { sendVerificationEmail };
+module.exports = { sendVerificationCode };

@@ -2,8 +2,12 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const pool = require('../config/db');
-const { sendVerificationEmail } = require('../services/emailService');
+const { sendVerificationCode } = require('../services/emailService');
 require('dotenv').config();
+
+const CODE_EXPIRY_MS = 15 * 60 * 1000; // 15 minutes
+
+const generateVerificationCode = () => String(crypto.randomInt(100000, 1000000));
 
 const generateToken = (user) => {
   const secret = process.env.JWT_SECRET;
@@ -80,19 +84,29 @@ const register = async (req, res) => {
       return res.status(400).json({ message: 'Email already registered' });
     }
 
+    if (normalizedRole === 'teacher' && staff_id) {
+      const existingStaffId = await client.query('SELECT id FROM teachers WHERE staff_id = $1', [staff_id]);
+      if (existingStaffId.rows.length > 0) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ message: `Staff ID '${staff_id}' is already in use` });
+      }
+    }
+
     const salt = await bcrypt.genSalt(10);
     const hashedPassword = await bcrypt.hash(password, salt);
-    const emailVerificationToken = crypto.randomBytes(32).toString('hex');
+    const verificationCode = generateVerificationCode();
+    const codeExpiresAt = new Date(Date.now() + CODE_EXPIRY_MS);
 
     const userResult = await client.query(
-      `INSERT INTO users (email, password, role, region, district, email_verification_token, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `INSERT INTO users (email, password, role, region, district, email_verification_code, email_verification_code_expires_at, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        RETURNING id, email, role, region, district`,
       [
         normalizedEmail, hashedPassword, normalizedRole,
         normalizedRole === 'hr_officer' ? nullable(region) : null,
         normalizedRole === 'hr_officer' ? nullable(district) : null,
-        emailVerificationToken,
+        verificationCode,
+        codeExpiresAt,
         req.user ? req.user.id : null
       ]
     );
@@ -156,13 +170,10 @@ const register = async (req, res) => {
 
     await client.query('COMMIT');
 
-    sendVerificationEmail(user.email, emailVerificationToken);
-
-    const token = generateToken(user);
+    sendVerificationCode(user.email, verificationCode);
 
     res.status(201).json({
-      message: 'Registration successful',
-      token,
+      message: 'Registration successful. A verification code has been sent to the account email.',
       user: { id: user.id, email: user.email, role: user.role, region: user.region, district: user.district }
     });
 
@@ -176,6 +187,13 @@ const register = async (req, res) => {
       first_name: req.body.first_name,
       last_name: req.body.last_name,
     });
+
+    // Postgres unique_violation — covers constraints not pre-checked above
+    // (e.g. ghana_card_number) so a duplicate value never surfaces as a 500.
+    if (err.code === '23505') {
+      return res.status(400).json({ message: 'A record with one of these unique values (e.g. staff ID, Ghana Card number) already exists' });
+    }
+
     res.status(500).json({ message: 'Server error', error: err.message });
   } finally {
     client.release();
@@ -199,6 +217,31 @@ const login = async (req, res) => {
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
       return res.status(401).json({ message: 'Invalid email or password' });
+    }
+
+    if (!user.email_verified) {
+      // Password was correct, but no session is issued until the email is
+      // verified. Only send a fresh code if the existing one has expired (or
+      // none exists) — repeated login attempts within the window shouldn't
+      // spam a new email each time. The "Resend code" button covers that case.
+      const hasValidCode = user.email_verification_code_expires_at
+        && new Date(user.email_verification_code_expires_at) > new Date();
+
+      if (!hasValidCode) {
+        const verificationCode = generateVerificationCode();
+        const codeExpiresAt = new Date(Date.now() + CODE_EXPIRY_MS);
+        await pool.query(
+          'UPDATE users SET email_verification_code = $1, email_verification_code_expires_at = $2 WHERE id = $3',
+          [verificationCode, codeExpiresAt, user.id]
+        );
+        sendVerificationCode(user.email, verificationCode);
+      }
+
+      return res.status(403).json({
+        message: 'Email not verified. A verification code has been sent to your email.',
+        email_verification_required: true,
+        email: user.email
+      });
     }
 
     await pool.query(
@@ -283,35 +326,96 @@ const changePassword = async (req, res) => {
   }
 };
 
-// @route  POST /api/auth/verify-email
-const verifyEmail = async (req, res) => {
-  const { token } = req.body;
+// @route  POST /api/auth/verify-email-code
+// @access Public — identified by email + the code sent to that email
+// Verifies and immediately logs the user in (returns a token), so they don't
+// have to submit the code then separately log in again right after.
+const verifyEmailCode = async (req, res) => {
+  const { email, code } = req.body;
+  const normalizedEmail = String(email || '').trim().toLowerCase();
 
-  if (!token) {
-    return res.status(400).json({ message: 'Verification token is required' });
+  if (!normalizedEmail || !code) {
+    return res.status(400).json({ message: 'Email and code are required' });
   }
 
   try {
-    const result = await pool.query(
-      'SELECT id, email_verified FROM users WHERE email_verification_token = $1',
-      [token]
-    );
-
+    const result = await pool.query('SELECT * FROM users WHERE email = $1', [normalizedEmail]);
     if (result.rows.length === 0) {
-      return res.status(400).json({ message: 'Invalid or expired verification token' });
+      return res.status(400).json({ message: 'Invalid email or code' });
     }
 
-    if (result.rows[0].email_verified) {
-      return res.json({ message: 'Email already verified' });
+    const user = result.rows[0];
+
+    if (user.email_verified) {
+      return res.status(400).json({ message: 'Email already verified — please log in' });
+    }
+
+    if (!user.email_verification_code || user.email_verification_code !== String(code).trim()) {
+      return res.status(400).json({ message: 'Invalid code' });
+    }
+
+    if (!user.email_verification_code_expires_at || new Date(user.email_verification_code_expires_at) < new Date()) {
+      return res.status(400).json({ message: 'This code has expired. Request a new one.' });
     }
 
     await pool.query(
-      `UPDATE users SET email_verified = true, email_verified_at = NOW(), email_verification_token = NULL
+      `UPDATE users SET email_verified = true, email_verified_at = NOW(),
+        email_verification_code = NULL, email_verification_code_expires_at = NULL
        WHERE id = $1`,
-      [result.rows[0].id]
+      [user.id]
     );
 
-    res.json({ message: 'Email verified successfully' });
+    await pool.query(
+      'INSERT INTO audit_logs (user_id, action, entity, details) VALUES ($1,$2,$3,$4)',
+      [user.id, 'VERIFY_EMAIL', 'users', 'Email verified via code']
+    );
+
+    const token = generateToken(user);
+
+    res.json({
+      message: 'Email verified successfully',
+      token,
+      user: { id: user.id, email: user.email, role: user.role }
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error', error: err.message });
+  }
+};
+
+// @route  POST /api/auth/resend-verification-code
+// @access Public — identified by email only
+const resendVerificationCode = async (req, res) => {
+  const { email } = req.body;
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+
+  if (!normalizedEmail) {
+    return res.status(400).json({ message: 'Email is required' });
+  }
+
+  try {
+    const result = await pool.query('SELECT id, email, email_verified FROM users WHERE email = $1', [normalizedEmail]);
+    if (result.rows.length === 0) {
+      return res.status(400).json({ message: 'No account found with that email' });
+    }
+
+    const user = result.rows[0];
+
+    if (user.email_verified) {
+      return res.status(400).json({ message: 'Email already verified — please log in' });
+    }
+
+    const verificationCode = generateVerificationCode();
+    const codeExpiresAt = new Date(Date.now() + CODE_EXPIRY_MS);
+
+    await pool.query(
+      'UPDATE users SET email_verification_code = $1, email_verification_code_expires_at = $2 WHERE id = $3',
+      [verificationCode, codeExpiresAt, user.id]
+    );
+
+    sendVerificationCode(user.email, verificationCode);
+
+    res.json({ message: 'A new verification code has been sent to your email' });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Server error', error: err.message });
@@ -347,4 +451,4 @@ const getUsersByRole = async (req, res) => {
   }
 };
 
-module.exports = { register, login, getMe, changePassword, verifyEmail, getUsersByRole };
+module.exports = { register, login, getMe, changePassword, verifyEmailCode, resendVerificationCode, getUsersByRole };

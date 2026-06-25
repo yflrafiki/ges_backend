@@ -12,6 +12,8 @@ CREATE TABLE IF NOT EXISTS users (
   email_verification_token VARCHAR(255),
   email_verified_at TIMESTAMP,
   created_by UUID REFERENCES users(id),
+  email_verification_code VARCHAR(10),
+  email_verification_code_expires_at TIMESTAMP,
   created_at TIMESTAMP DEFAULT NOW()
 );
 

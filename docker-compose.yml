@@ -41,6 +41,14 @@ services:
       FABRIC_CHAINCODE: ges-verify
       FABRIC_GES_PEER: peer0.ges.ges.edu.gh:7051
       FABRIC_GES_PEER_HOST: peer0.ges.ges.edu.gh
+      # Read from ges/.env (gitignored) via Compose's own .env substitution —
+      # the real credentials never go into this tracked file.
+      SMTP_HOST: ${SMTP_HOST:-smtp.gmail.com}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURE: ${SMTP_SECURE:-false}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASS: ${SMTP_PASS:-}
+      SMTP_FROM: ${SMTP_FROM:-}
     volumes:
       - uploads_data:/app/src/uploads
       - ../ges_final_year_fabric/crypto-config:/app/fabric-crypto:ro

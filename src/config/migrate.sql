@@ -51,7 +51,9 @@ ALTER TABLE users
   ADD COLUMN IF NOT EXISTS email_verified BOOLEAN DEFAULT false,
   ADD COLUMN IF NOT EXISTS email_verification_token VARCHAR(255),
   ADD COLUMN IF NOT EXISTS email_verified_at TIMESTAMP,
-  ADD COLUMN IF NOT EXISTS created_by UUID REFERENCES users(id);
+  ADD COLUMN IF NOT EXISTS created_by UUID REFERENCES users(id),
+  ADD COLUMN IF NOT EXISTS email_verification_code VARCHAR(10),
+  ADD COLUMN IF NOT EXISTS email_verification_code_expires_at TIMESTAMP;
 
 CREATE TABLE IF NOT EXISTS teacher_education (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
