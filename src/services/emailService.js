@@ -1,29 +1,20 @@
-const nodemailer = require('nodemailer');
+const sgMail = require('@sendgrid/mail');
 
-const smtpConfigured = Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS);
+const sendgridConfigured = Boolean(process.env.SENDGRID_API_KEY && process.env.SENDGRID_FROM);
 
-const transporter = smtpConfigured
-  ? nodemailer.createTransport({
-      host: process.env.SMTP_HOST,
-      port: parseInt(process.env.SMTP_PORT, 10) || 587,
-      secure: process.env.SMTP_SECURE === 'true',
-      auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
-      // Some hosts (e.g. Render) have broken/missing IPv6 egress, which makes
-      // connections to providers whose SMTP resolves to both A and AAAA records
-      // (like Gmail) fail with ENETUNREACH. Force IPv4 to avoid that.
-      family: 4,
-    })
-  : null;
+if (sendgridConfigured) {
+  sgMail.setApiKey(process.env.SENDGRID_API_KEY);
+}
 
 const sendVerificationCode = async (toEmail, code) => {
-  if (!transporter) {
-    console.log(`[email-verification] SMTP not configured. Verification code for ${toEmail}: ${code}`);
+  if (!sendgridConfigured) {
+    console.log(`[email-verification] SendGrid not configured. Verification code for ${toEmail}: ${code}`);
     return;
   }
 
   try {
-    await transporter.sendMail({
-      from: process.env.SMTP_FROM || process.env.SMTP_USER,
+    await sgMail.send({
+      from: process.env.SENDGRID_FROM,
       to: toEmail,
       subject: 'Your GES verification code',
       html: `
@@ -33,7 +24,7 @@ const sendVerificationCode = async (toEmail, code) => {
       `,
     });
   } catch (err) {
-    console.error('Failed to send verification code email:', err.message);
+    console.error('Failed to send verification code email:', err.response?.body?.errors || err.message);
   }
 };
 
