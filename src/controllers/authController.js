@@ -208,13 +208,16 @@ const login = async (req, res) => {
 
   try {
     const result = await pool.query('SELECT * FROM users WHERE email = $1', [normalizedEmail]);
+    console.log('LOGIN DEBUG: rows found =', result.rows.length, 'for email =', JSON.stringify(normalizedEmail));
     if (result.rows.length === 0) {
       return res.status(401).json({ message: 'Invalid email or password' });
     }
 
     const user = result.rows[0];
 
+    console.log('LOGIN DEBUG: comparing password, hash prefix =', user.password?.slice(0, 7));
     const isMatch = await bcrypt.compare(password, user.password);
+    console.log('LOGIN DEBUG: isMatch =', isMatch);
     if (!isMatch) {
       return res.status(401).json({ message: 'Invalid email or password' });
     }
