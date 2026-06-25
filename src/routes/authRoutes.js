@@ -2,8 +2,15 @@ const express = require('express');
 const router = express.Router();
 const { register, login, getMe, changePassword, verifyEmailCode, resendVerificationCode, getUsersByRole } = require('../controllers/authController');
 const { protect, authorize } = require('../middleware/auth');
+const upload = require('../config/multer');
 
-router.post('/register', protect, authorize('admin'), register);
+const registrationDocs = upload.fields([
+  { name: 'nss_certificate', maxCount: 1 },
+  { name: 'degree_certificate', maxCount: 1 },
+  { name: 'appointment_letter', maxCount: 1 },
+]);
+
+router.post('/register', protect, authorize('admin'), registrationDocs, register);
 router.post('/login', login);
 router.post('/verify-email-code', verifyEmailCode);
 router.post('/resend-verification-code', resendVerificationCode);

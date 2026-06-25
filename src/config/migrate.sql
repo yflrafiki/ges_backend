@@ -104,3 +104,33 @@ ALTER TABLE documents
 -- back to re-upload; a second failure routes to HR for manual review.
 ALTER TABLE promotion_documents
   ADD COLUMN IF NOT EXISTS submission_attempts INTEGER DEFAULT 0;
+
+-- Statutory/professional registration data collected at intake (NTC, NSS,
+-- SSNIT, tertiary academic background) plus the supporting documents for
+-- National Service and the degree/diploma and appointment/promotion letter.
+ALTER TABLE teachers
+  ADD COLUMN IF NOT EXISTS residential_address TEXT,
+  ADD COLUMN IF NOT EXISTS ntc_license_number VARCHAR(50),
+  ADD COLUMN IF NOT EXISTS nss_number VARCHAR(50),
+  ADD COLUMN IF NOT EXISTS nss_certificate_path VARCHAR(500),
+  ADD COLUMN IF NOT EXISTS ssnit_number VARCHAR(50),
+  ADD COLUMN IF NOT EXISTS institution_attended VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS graduation_date DATE,
+  ADD COLUMN IF NOT EXISTS major_minor_courses VARCHAR(255),
+  ADD COLUMN IF NOT EXISTS student_index_number VARCHAR(100),
+  ADD COLUMN IF NOT EXISTS degree_certificate_path VARCHAR(500),
+  ADD COLUMN IF NOT EXISTS appointment_letter_path VARCHAR(500);
+
+-- Display name for the post-login welcome message. For teachers this is set
+-- server-side from first_name+last_name at registration; for hr_officer/
+-- admin/examiner accounts (which have no teachers row) it's collected
+-- directly on the registration form.
+ALTER TABLE users
+  ADD COLUMN IF NOT EXISTS full_name VARCHAR(255);
+
+-- Backfill for teacher accounts created before full_name existed — derives
+-- it from their teachers row so existing logins show a real name, not email.
+UPDATE users u
+SET full_name = TRIM(CONCAT(t.first_name, ' ', t.last_name))
+FROM teachers t
+WHERE t.user_id = u.id AND u.role = 'teacher' AND u.full_name IS NULL;

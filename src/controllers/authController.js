@@ -42,6 +42,11 @@ const register = async (req, res) => {
     title, marital_status, nationality, hometown, house_number,
     // Identification
     ghana_card_number, ghana_card_issue_date, ghana_card_expiry_date,
+    residential_address,
+    // Professional licensing & statutory
+    ntc_license_number, nss_number, ssnit_number,
+    // Academic qualifications
+    institution_attended, graduation_date, major_minor_courses, student_index_number,
     // Rank
     national_date_of_present_rank, years_in_current_rank,
     // Employment
@@ -50,8 +55,18 @@ const register = async (req, res) => {
     // Health
     disability_status, disability_type,
     // Service
-    years_of_service
+    years_of_service,
+    // Display name for hr_officer/admin/examiner (teachers derive it from
+    // first_name/last_name below instead)
+    full_name
   } = req.body || {};
+
+  const nss_certificate_path = req.files?.nss_certificate?.[0]
+    ? `uploads/documents/${req.files.nss_certificate[0].filename}` : null;
+  const degree_certificate_path = req.files?.degree_certificate?.[0]
+    ? `uploads/documents/${req.files.degree_certificate[0].filename}` : null;
+  const appointment_letter_path = req.files?.appointment_letter?.[0]
+    ? `uploads/documents/${req.files.appointment_letter[0].filename}` : null;
 
   const normalizedEmail = String(email || '').trim().toLowerCase();
   const normalizedRole = String(role || '').trim().toLowerCase();
@@ -72,6 +87,10 @@ const register = async (req, res) => {
 
   if (normalizedRole === 'teacher' && (!staff_id || !first_name || !last_name)) {
     return res.status(400).json({ message: 'staff_id, first_name and last_name are required for teachers' });
+  }
+
+  if (normalizedRole !== 'teacher' && !full_name) {
+    return res.status(400).json({ message: 'full_name is required' });
   }
 
   const client = await pool.connect();
@@ -97,17 +116,22 @@ const register = async (req, res) => {
     const verificationCode = generateVerificationCode();
     const codeExpiresAt = new Date(Date.now() + CODE_EXPIRY_MS);
 
+    const displayName = normalizedRole === 'teacher'
+      ? `${first_name || ''} ${last_name || ''}`.trim()
+      : nullable(full_name);
+
     const userResult = await client.query(
-      `INSERT INTO users (email, password, role, region, district, email_verification_code, email_verification_code_expires_at, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-       RETURNING id, email, role, region, district`,
+      `INSERT INTO users (email, password, role, region, district, email_verification_code, email_verification_code_expires_at, created_by, full_name)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       RETURNING id, email, role, region, district, full_name`,
       [
         normalizedEmail, hashedPassword, normalizedRole,
         normalizedRole === 'hr_officer' ? nullable(region) : null,
         normalizedRole === 'hr_officer' ? nullable(district) : null,
         verificationCode,
         codeExpiresAt,
-        req.user ? req.user.id : null
+        req.user ? req.user.id : null,
+        displayName || null
       ]
     );
     const user = userResult.rows[0];
@@ -120,13 +144,18 @@ const register = async (req, res) => {
           current_district, current_region, qualification,
           title, marital_status, nationality, hometown, house_number,
           ghana_card_number, ghana_card_issue_date, ghana_card_expiry_date,
+          residential_address, ntc_license_number, nss_number, nss_certificate_path,
+          ssnit_number, institution_attended, graduation_date, major_minor_courses,
+          student_index_number, degree_certificate_path, appointment_letter_path,
           national_date_of_present_rank, years_in_current_rank,
           date_of_first_appointment, date_of_confirmation,
           date_of_current_posting, employment_status,
           disability_status, disability_type,
           years_of_service, date_of_birth)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,
-                 $13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30)`,
+                 $13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,
+                 $25,$26,$27,$28,$29,$30,$31,
+                 $32,$33,$34,$35,$36,$37,$38,$39,$40,$41)`,
         [
           user.id,
           nullable(staff_id),
@@ -148,6 +177,17 @@ const register = async (req, res) => {
           nullable(ghana_card_number),
           nullable(ghana_card_issue_date),
           nullable(ghana_card_expiry_date),
+          nullable(residential_address),
+          nullable(ntc_license_number),
+          nullable(nss_number),
+          nss_certificate_path,
+          nullable(ssnit_number),
+          nullable(institution_attended),
+          nullable(graduation_date),
+          nullable(major_minor_courses),
+          nullable(student_index_number),
+          degree_certificate_path,
+          appointment_letter_path,
           nullable(national_date_of_present_rank),
           years_in_current_rank || 0,
           nullable(date_of_first_appointment),
@@ -253,7 +293,7 @@ const login = async (req, res) => {
     res.json({
       message: 'Login successful',
       token,
-      user: { id: user.id, email: user.email, role: user.role }
+      user: { id: user.id, email: user.email, role: user.role, name: user.full_name || null }
     });
 
   } catch (err) {
@@ -374,7 +414,7 @@ const verifyEmailCode = async (req, res) => {
     res.json({
       message: 'Email verified successfully',
       token,
-      user: { id: user.id, email: user.email, role: user.role }
+      user: { id: user.id, email: user.email, role: user.role, name: user.full_name || null }
     });
   } catch (err) {
     console.error(err);
