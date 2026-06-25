@@ -494,24 +494,34 @@ const submitPromotionDocument = async (req, res) => {
     const staffIdMatch = validation?.staffIdMatch || false;
     const blockchainResult = validation?.blockchainCheck?.result || null;
 
-    // Auto decision based on OCR match against profile...
-    let hrDecision = 'manual_review';
-    if (nameMatch && staffIdMatch) {
-      hrDecision = 'approved';
-    } else if (!nameMatch && !staffIdMatch) {
-      hrDecision = 'manual_review';
-    }
-    // ...overridden by GTEC/NTC's on-chain verdict: a revoked or expired credential
-    // is never auto-approved regardless of how well the OCR text matched the profile.
-    if (['revoked', 'expired'].includes(blockchainResult)) {
-      hrDecision = 'manual_review';
-    }
+    // Pass requires: OCR name/staff ID match the teacher's own profile, AND
+    // — for qualification/license documents — GTEC/NTC's on-chain record
+    // actually matches (a fabricated cert with the right name/ID printed on
+    // it still fails here, since nothing was ever anchored for it, or it
+    // doesn't match what was).
+    const blockchainOk = blockchainResult === null || blockchainResult === 'match';
+    const passed = nameMatch && staffIdMatch && blockchainOk;
 
-    // Save promotion document
     const existing = await pool.query(
-      'SELECT id FROM promotion_documents WHERE application_id = $1',
+      'SELECT id, submission_attempts FROM promotion_documents WHERE application_id = $1',
       [req.params.id]
     );
+    const previousAttempts = existing.rows[0]?.submission_attempts || 0;
+    const attempts = previousAttempts + 1;
+
+    // First failed attempt: let the teacher try again with a different
+    // document. Second+ failure: stop auto-retrying and send it to HR.
+    let hrDecision, examAccessGranted;
+    if (passed) {
+      hrDecision = 'approved';
+      examAccessGranted = true;
+    } else if (attempts <= 1) {
+      hrDecision = 'retry';
+      examAccessGranted = false;
+    } else {
+      hrDecision = 'manual_review';
+      examAccessGranted = false;
+    }
 
     let promoDoc;
     if (existing.rows.length > 0) {
@@ -519,34 +529,44 @@ const submitPromotionDocument = async (req, res) => {
         `UPDATE promotion_documents SET
           document_id = $1, ocr_name_match = $2, ocr_staff_id_match = $3,
           ocr_validation = $4, hr_decision = $5, hr_reviewed = false,
-          exam_access_granted = false
-         WHERE application_id = $6 RETURNING *`,
+          exam_access_granted = $6, submission_attempts = $7
+         WHERE application_id = $8 RETURNING *`,
         [document_id, nameMatch, staffIdMatch,
-          document.ocr_validation, hrDecision, req.params.id]
+          document.ocr_validation, hrDecision, examAccessGranted, attempts, req.params.id]
       );
     } else {
       promoDoc = await pool.query(
         `INSERT INTO promotion_documents
           (application_id, teacher_id, document_id, ocr_name_match,
-           ocr_staff_id_match, ocr_validation, hr_decision)
-         VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+           ocr_staff_id_match, ocr_validation, hr_decision, exam_access_granted, submission_attempts)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
         [req.params.id, teacher.id, document_id,
-          nameMatch, staffIdMatch, document.ocr_validation, hrDecision]
+          nameMatch, staffIdMatch, document.ocr_validation, hrDecision, examAccessGranted, attempts]
       );
     }
 
     await pool.query(
       'INSERT INTO audit_logs (user_id, action, entity, entity_id, details) VALUES ($1,$2,$3,$4,$5)',
       [req.user.id, 'SUBMIT_PROMO_DOC', 'promotion_documents',
-        promoDoc.rows[0].id, `Document submitted for promotion application`]
+        promoDoc.rows[0].id, `Document submitted for promotion application (attempt ${attempts}, decision: ${hrDecision})`]
     );
 
+    const message =
+      hrDecision === 'approved'
+        ? 'Document verified — you can now take the promotion exam.'
+        : hrDecision === 'retry'
+          ? 'This does not look like the correct document for your profile. Please check and upload the correct document.'
+          : 'We could not automatically verify this document. It is now being reviewed by HR.';
+
     res.json({
-      message: 'Document submitted successfully',
+      message,
       ocr_result: {
         nameMatch,
         staffIdMatch,
+        blockchainResult,
         auto_decision: hrDecision,
+        attempts,
+        can_retry: hrDecision === 'retry',
         details: validation?.details || []
       },
       promotion_document: promoDoc.rows[0]
@@ -578,7 +598,7 @@ const getPromotionDocuments = async (req, res) => {
        JOIN documents d ON pd.document_id = d.id
        JOIN applications a ON pd.application_id = a.id
        LEFT JOIN users u ON pd.reviewed_by = u.id
-       WHERE 1=1
+       WHERE pd.hr_decision != 'retry'
     `;
     const params = [];
     if (req.user.role === 'hr_officer') {

@@ -2,8 +2,8 @@ const pool = require('../config/db');
 const crypto = require('crypto');
 const fs = require('fs');
 const { extractTextFromFile, parseDocumentFields } = require('../services/ocrService');
-const { verifyAgainstReference, qualCertId, licenseCertId } = require('../services/blockchainVerifyService');
-const { invokeChaincodeWithTxId, isFabricAvailable } = require('../services/fabricClient');
+const { qualCertId, licenseCertId } = require('../services/blockchainVerifyService');
+const { invokeChaincodeWithTxId } = require('../services/fabricClient');
 
 const generateHash = (data) => {
   return crypto.createHash('sha256').update(data).digest('hex');
@@ -13,24 +13,6 @@ const generateTxId = () => {
   const timestamp = Date.now().toString(16).toUpperCase();
   const random = crypto.randomBytes(16).toString('hex').toUpperCase();
   return `${timestamp}${random}`;
-};
-
-// Simulated anchoring, used only when the Fabric network isn't reachable.
-const anchorToNodesSimulated = async (data) => {
-  const nodes = [
-    { id: 'GES', role: 'orderer', msp: 'GESMSP' },
-    { id: 'GTEC', role: 'peer', msp: 'GTECMSP' },
-    { id: 'NTC', role: 'peer', msp: 'NTCMSP' },
-  ];
-
-  console.log(`\n=== ANCHORING TO BLOCKCHAIN (SIMULATION) ===`);
-  for (const node of nodes) {
-    await new Promise(r => setTimeout(r, 200));
-    console.log(`[${node.role.toUpperCase()}] ${node.id} (${node.msp}): endorsed`);
-  }
-  console.log(`Consensus: 3/3 nodes — COMMITTED ✓`);
-  console.log(`==============================================\n`);
-  return { txId: generateTxId(), mode: 'simulation' };
 };
 
 // @route  POST /api/blockchain/upload-reference
@@ -69,7 +51,7 @@ const uploadReference = async (req, res) => {
     let anchorOutcome;
     let anchoredOnChain = false;
 
-    if (isFabricAvailable() && (isQualification || isLicense)) {
+    if (isQualification || isLicense) {
       try {
         if (isQualification) {
           // GESMSP is required to satisfy the channel's 2-of-3 majority endorsement
@@ -104,13 +86,15 @@ const uploadReference = async (req, res) => {
             certId
           });
         }
-        console.error('On-chain anchoring failed, falling back to simulation:', err.message);
-        anchorOutcome = await anchorToNodesSimulated({ staff_id: staffIdUpper, teacher_name: teacherNameUpper, documentHash, orgMsp });
+        return res.status(502).json({
+          message: `Failed to anchor on the blockchain network: ${err.message}`,
+        });
       }
     } else {
       // GES-type documents (appointment letters, service records) have no
-      // GTEC/NTC chaincode function to anchor into — record the hash only.
-      anchorOutcome = await anchorToNodesSimulated({ staff_id: staffIdUpper, teacher_name: teacherNameUpper, documentHash, orgMsp });
+      // GTEC/NTC chaincode function to anchor into — record the hash only,
+      // with no real on-chain transaction.
+      anchorOutcome = { txId: generateTxId(), mode: 'hash_only' };
     }
 
     // Save to database (this is a local index/cache — the source of truth for
@@ -146,7 +130,7 @@ const uploadReference = async (req, res) => {
     res.status(201).json({
       message: anchoredOnChain
         ? `Document anchored on the real Fabric network by ${orgMsp.replace('MSP', '')}`
-        : 'Document recorded (simulation mode — Fabric network not reachable, or document type has no on-chain anchor function)',
+        : 'Document recorded — this document type has no on-chain anchor function, hash recorded locally only',
       reference: result.rows[0],
       blockchain: {
         transaction_id: anchorOutcome.txId,
@@ -199,6 +183,5 @@ const getAllReferences = async (req, res) => {
 
 module.exports = {
   uploadReference,
-  getAllReferences,
-  verifyAgainstReference
+  getAllReferences
 };

@@ -92,3 +92,15 @@ ALTER TABLE change_requests
   ADD COLUMN IF NOT EXISTS document_path VARCHAR(500),
   ADD COLUMN IF NOT EXISTS document_name VARCHAR(255),
   ADD COLUMN IF NOT EXISTS document_hash VARCHAR(64);
+
+-- Document type drives which chaincode check (if any) applies on upload:
+-- 'qualification' -> cross-checked against GTEC's anchored record,
+-- 'license' -> cross-checked against NTC's, 'other' -> hash-anchor only.
+ALTER TABLE documents
+  ADD COLUMN IF NOT EXISTS document_type VARCHAR(20) DEFAULT 'other';
+
+-- Tracks how many times a teacher has submitted a document for a given
+-- promotion application — the first failed OCR/blockchain check sends them
+-- back to re-upload; a second failure routes to HR for manual review.
+ALTER TABLE promotion_documents
+  ADD COLUMN IF NOT EXISTS submission_attempts INTEGER DEFAULT 0;

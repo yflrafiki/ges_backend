@@ -7,7 +7,7 @@ const {
   parseDocumentFields,
   validateAgainstTeacherRecord
 } = require('../services/ocrService');
-const { anchorDocumentHash } = require('../services/blockchainVerifyService');
+const { anchorDocumentHash, verifyOnChain } = require('../services/blockchainVerifyService');
 
 // Generate SHA-256 hash of file
 const generateFileHash = (filePath) => {
@@ -29,10 +29,12 @@ const uploadDocument = async (req, res) => {
     }
 
     const { application_id } = req.body;
+    const allowedTypes = ['qualification', 'license', 'other'];
+    const document_type = allowedTypes.includes(req.body.document_type) ? req.body.document_type : 'other';
 
     // Get teacher profile
     const teacherResult = await pool.query(
-      'SELECT id, staff_id FROM teachers WHERE user_id = $1',
+      'SELECT id, staff_id, first_name, last_name FROM teachers WHERE user_id = $1',
       [req.user.id]
     );
 
@@ -40,8 +42,10 @@ const uploadDocument = async (req, res) => {
       return res.status(404).json({ message: 'Teacher profile not found' });
     }
 
-    const teacher_id = teacherResult.rows[0].id;
-    const staff_id = teacherResult.rows[0].staff_id;
+    const teacher = teacherResult.rows[0];
+    const teacher_id = teacher.id;
+    const staff_id = teacher.staff_id;
+    const teacherName = `${teacher.first_name} ${teacher.last_name}`;
 
     // Generate hash of the uploaded file immediately
     const fileHash = await generateFileHash(req.file.path);
@@ -54,8 +58,8 @@ const uploadDocument = async (req, res) => {
     const docResult = await pool.query(
       `INSERT INTO documents
         (teacher_id, application_id, file_name, file_path, file_type,
-         ocr_status, document_hash)
-       VALUES ($1, $2, $3, $4, $5, 'pending', $6)
+         ocr_status, document_hash, document_type)
+       VALUES ($1, $2, $3, $4, $5, 'pending', $6, $7)
        RETURNING *`,
       [
         teacher_id,
@@ -63,7 +67,8 @@ const uploadDocument = async (req, res) => {
         req.file.originalname,
         relativePath,
         req.file.mimetype,
-        fileHash
+        fileHash,
+        document_type
       ]
     );
 
@@ -76,14 +81,17 @@ const uploadDocument = async (req, res) => {
         id: document.id,
         file_name: document.file_name,
         file_type: document.file_type,
+        document_type: document.document_type,
         ocr_status: document.ocr_status,
         uploaded_at: document.uploaded_at
       }
     });
 
     // Process in background: anchor the hash on the blockchain first (this is
-    // the authenticity check), then run OCR to validate name/staff ID.
-    processDocumentVerification(document.id, req.file.path, teacher_id, staff_id, fileHash, document.file_name);
+    // the authenticity check), then run OCR to validate name/staff ID, then
+    // (for qualification/license types) cross-check against GTEC/NTC's
+    // already-anchored record for this staff ID.
+    processDocumentVerification(document.id, req.file.path, teacher_id, staff_id, teacherName, fileHash, document.file_name, document_type);
 
   } catch (err) {
     console.error(err);
@@ -93,15 +101,19 @@ const uploadDocument = async (req, res) => {
 
 // Background processing — fully automatic, no teacher action required:
 //   1. Anchor the document hash on the blockchain FIRST. This is the
-//      authenticity check — the hash becoming an immutable ledger record is
-//      what "verified" means here, not a check against some pre-existing
-//      reference GTEC/NTC uploaded.
-//   2. THEN run OCR to check the document's name/staff ID against the
-//      teacher's profile.
-//   3. A document is "verified" only if both the anchor succeeded and the
-//      OCR fields match — this automatically creates/updates the teacher's
-//      credentials row, so neither the teacher nor HR has to do anything.
-const processDocumentVerification = async (documentId, filePath, teacherId, staffId, fileHash, fileName) => {
+//      tamper-evidence check — the hash becoming an immutable ledger record
+//      proves the file wasn't altered after upload.
+//   2. Run OCR to check the document's name/staff ID against the teacher's
+//      profile.
+//   3. For 'qualification'/'license' documents specifically, cross-check the
+//      OCR'd details against GTEC's/NTC's already-anchored record for this
+//      staff ID — this is the actual fraud check: a fabricated certificate
+//      with the right name/ID printed on it still won't match (or won't
+//      exist) on GTEC's/NTC's ledger.
+//   4. A document is "verified" only if the anchor succeeded, the OCR fields
+//      match, AND (for qualification/license) the on-chain cross-check
+//      didn't come back mismatched/revoked/expired/not_found.
+const processDocumentVerification = async (documentId, filePath, teacherId, staffId, teacherName, fileHash, fileName, documentType = 'other') => {
   let anchorResult;
   try {
     console.log(`\n=== Anchoring document hash on blockchain: ${documentId} ===`);
@@ -124,19 +136,37 @@ const processDocumentVerification = async (documentId, filePath, teacherId, staf
       const validation = await validateAgainstTeacherRecord(teacherId, parsedFields);
       console.log('Validation result:', validation);
 
-      const verified = anchorResult.anchored && validation.nameMatch && validation.staffIdMatch;
+      let blockchainCheck = null;
+      if (documentType === 'qualification' || documentType === 'license') {
+        try {
+          blockchainCheck = await verifyOnChain(documentType, staffId, teacherName, parsedFields);
+          console.log(`On-chain credential check (${documentType}):`, blockchainCheck.result, blockchainCheck.message);
+        } catch (err) {
+          console.error('On-chain credential check error:', err.message);
+          blockchainCheck = { found: false, result: 'error', message: err.message };
+        }
+      }
+
+      const blockchainOk = !blockchainCheck || blockchainCheck.result === 'match';
+      const verified = anchorResult.anchored && validation.nameMatch && validation.staffIdMatch && blockchainOk;
 
       const details = [
         anchorResult.anchored
           ? `✓ BLOCKCHAIN (${anchorResult.mode}): Document hash anchored — tamper-proof record created`
           : `✗ BLOCKCHAIN: Failed to anchor document hash`,
-        ...validation.details
+        ...validation.details,
+        ...(blockchainCheck
+          ? [blockchainOk
+              ? `✓ BLOCKCHAIN: Credential matches GTEC/NTC's anchored record`
+              : `✗ BLOCKCHAIN: Credential check returned "${blockchainCheck.result}" — ${blockchainCheck.message}`]
+          : [])
       ];
 
       const validationSummary = JSON.stringify({
         nameMatch: validation.nameMatch,
         staffIdMatch: validation.staffIdMatch,
         blockchainAnchor: anchorResult,
+        blockchainCheck,
         verified,
         details,
         parsedFields: {

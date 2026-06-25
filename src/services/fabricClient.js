@@ -64,18 +64,6 @@ function newSigner() {
   return signers.newPrivateKeySigner(privateKey);
 }
 
-// Check whether the Fabric network crypto material exists
-function isFabricAvailable() {
-  try {
-    getGESPeerTLSCert();
-    getGESAdminIdentity();
-    getGESAdminKey();
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 // Execute a chaincode transaction (submit = write, evaluate = read).
 //
 // endorsingOrganizations matters for AnchorQualification/AnchorLicense (which write
@@ -148,4 +136,4 @@ async function invokeChaincodeWithTxId(fnName, args = [], { endorsingOrganizatio
   }
 }
 
-module.exports = { invokeChaincode, invokeChaincodeWithTxId, isFabricAvailable, CHANNEL, CHAINCODE };
+module.exports = { invokeChaincode, invokeChaincodeWithTxId, CHANNEL, CHAINCODE };

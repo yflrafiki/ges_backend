@@ -196,8 +196,17 @@ const getAvailableExams = async (req, res) => {
 
     // Check if teacher has an approved promotion application
     const promotionResult = await pool.query(
-      `SELECT id FROM applications 
+      `SELECT id FROM applications
        WHERE teacher_id = $1 AND type = 'promotion' AND status = 'approved'`,
+      [teacher.id]
+    );
+
+    // Or a promotion document that passed its OCR + blockchain checks
+    // (automatically, or via HR manual review) — this is the actual gate
+    // the document-submission flow is supposed to control.
+    const docAccessResult = await pool.query(
+      `SELECT pd.id FROM promotion_documents pd
+       WHERE pd.teacher_id = $1 AND pd.exam_access_granted = true`,
       [teacher.id]
     );
 
@@ -230,7 +239,7 @@ const getAvailableExams = async (req, res) => {
     );
 
     res.json({
-      eligible: promotionResult.rows.length > 0 || isServiceEligible,
+      eligible: promotionResult.rows.length > 0 || docAccessResult.rows.length > 0 || isServiceEligible,
       exams: result.rows
     });
 
