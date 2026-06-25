@@ -64,7 +64,34 @@ app.use(cors({
   credentials: true,
 }));
 app.use(morgan('dev'));
-app.use(express.json());
+
+// Manual JSON body parsing, bypassing express.json()/body-parser entirely.
+// Some requests were arriving with req.body undefined despite a correct
+// Content-Type and Content-Length on the wire (reproduced via curl and
+// PowerShell, not just the browser) — reading the raw stream ourselves
+// removes any dependency on whatever body-parser version/behavior is
+// actually resolved in a given environment.
+app.use((req, res, next) => {
+  const contentType = req.headers['content-type'] || '';
+  if (!contentType.includes('application/json')) {
+    return next();
+  }
+  let rawBody = '';
+  req.setEncoding('utf8');
+  req.on('data', (chunk) => { rawBody += chunk; });
+  req.on('end', () => {
+    if (!rawBody) {
+      req.body = {};
+      return next();
+    }
+    try {
+      req.body = JSON.parse(rawBody);
+    } catch (err) {
+      return res.status(400).json({ message: 'Invalid JSON body' });
+    }
+    next();
+  });
+});
 app.use(express.urlencoded({ extended: true }));
 
 // Routes
