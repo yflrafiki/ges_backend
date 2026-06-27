@@ -1,4 +1,5 @@
 const pool = require('../config/db');
+const { notifyHrForRegion, notifyTeacher } = require('../services/notificationService');
 
 // @route  POST /api/transfers
 // @access Teacher only
@@ -47,6 +48,15 @@ const createTransfer = async (req, res) => {
       'INSERT INTO audit_logs (user_id, action, entity, entity_id, details) VALUES ($1, $2, $3, $4, $5)',
       [req.user.id, 'CREATE_TRANSFER', 'applications', result.rows[0].id, 'Teacher submitted transfer application']
     );
+
+    notifyHrForRegion(requested_region, {
+      type: 'transfer_request',
+      title: 'New transfer request',
+      message: `${teacher.first_name} ${teacher.last_name} (${teacher.staff_id}) requested a transfer to ${requested_district}, ${requested_region}.`,
+      link: '/hr/transfers',
+      entityType: 'application',
+      entityId: result.rows[0].id,
+    });
 
     res.status(201).json({
       message: 'Transfer application submitted successfully',
@@ -286,6 +296,19 @@ const reviewTransfer = async (req, res) => {
       [req.user.id, 'REVIEW_TRANSFER', 'applications', req.params.id,
         `Transfer application ${status} by HR officer`]
     );
+
+    notifyTeacher(application.teacher_id, {
+      type: 'transfer_reviewed',
+      title: `Transfer ${status}`,
+      message: status === 'approved'
+        ? `Your transfer to ${application.requested_district}, ${application.requested_region} was approved.`
+        : status === 'rejected'
+          ? `Your transfer request was rejected.${hr_notes ? ` Reason: ${hr_notes}` : ''}`
+          : `HR requested more information on your transfer request.${hr_notes ? ` ${hr_notes}` : ''}`,
+      link: '/transfers',
+      entityType: 'application',
+      entityId: req.params.id,
+    });
 
     res.json({
       message: `Transfer application ${status} successfully`,

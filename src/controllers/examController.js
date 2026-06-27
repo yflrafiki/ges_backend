@@ -75,9 +75,9 @@ const isAnswerCorrect = (selected, question) => {
     return selectedLabel !== null && selectedLabel === correctLabel;
   }
 
-  const selectedText = resolveSubmittedAnswer(selected).toUpperCase();
-  const correctText = normalizeAnswerValue(question.correct_answer).toUpperCase();
-  return selectedText && correctText && selectedText === correctText;
+  const selectedText = resolveSubmittedAnswer(selected)?.toUpperCase();
+  const correctText = normalizeAnswerValue(question.correct_answer)?.toUpperCase();
+  return Boolean(selectedText && correctText && selectedText === correctText);
 };
 
 // @route  POST /api/exams
@@ -154,6 +154,9 @@ const closeExam = async (req, res) => {
       `UPDATE exams SET status = 'closed', updated_at = NOW() WHERE id = $1 RETURNING *`,
       [req.params.id]
     );
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: 'Exam not found' });
+    }
     res.json({ message: 'Exam closed', exam: result.rows[0] });
   } catch (err) {
     res.status(500).json({ message: 'Server error', error: err.message });

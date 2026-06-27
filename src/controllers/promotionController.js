@@ -1,6 +1,7 @@
 const pool = require('../config/db');
 const { recordPromotionDecision } = require('../services/blockchainService');
 const { validateAgainstTeacherRecord, parseDocumentFields, extractTextFromFile } = require('../services/ocrService');
+const { notifyHrForRegion, notifyTeacher } = require('../services/notificationService');
 
 // Eligibility rules: all grades qualify on more than 3 years of service
 const ELIGIBILITY_RULES = {
@@ -183,6 +184,15 @@ const applyForPromotion = async (req, res) => {
       [req.user.id, 'CREATE_PROMOTION', 'applications', result.rows[0].id,
         `Teacher applied for promotion to ${eligibility.nextGrade}`]
     );
+
+    notifyHrForRegion(teacher.current_region, {
+      type: 'promotion_request',
+      title: 'New promotion request',
+      message: `${teacher.first_name} ${teacher.last_name} (${teacher.staff_id}) applied for promotion to ${eligibility.nextGrade}.`,
+      link: '/hr/promotions',
+      entityType: 'application',
+      entityId: result.rows[0].id,
+    });
 
     res.status(201).json({
       message: 'Promotion application submitted successfully',
@@ -429,6 +439,19 @@ const reviewPromotion = async (req, res) => {
         `Promotion application ${status} by HR officer`]
     );
 
+    notifyTeacher(application.teacher_id, {
+      type: 'promotion_reviewed',
+      title: `Promotion ${status}`,
+      message: status === 'approved'
+        ? `Your promotion application was approved.`
+        : status === 'rejected'
+          ? `Your promotion application was rejected.${hr_notes ? ` Reason: ${hr_notes}` : ''}`
+          : `HR requested more information on your promotion application.${hr_notes ? ` ${hr_notes}` : ''}`,
+      link: '/promotions',
+      entityType: 'application',
+      entityId: req.params.id,
+    });
+
     res.json({
       message: `Promotion application ${status} successfully`,
       application: updated.rows[0]
@@ -551,6 +574,17 @@ const submitPromotionDocument = async (req, res) => {
         promoDoc.rows[0].id, `Document submitted for promotion application (attempt ${attempts}, decision: ${hrDecision})`]
     );
 
+    if (hrDecision === 'manual_review') {
+      notifyHrForRegion(teacher.current_region, {
+        type: 'promotion_document_review',
+        title: 'Promotion document needs manual review',
+        message: `${teacher.first_name} ${teacher.last_name} (${teacher.staff_id})'s promotion document failed automatic verification twice and needs manual review.`,
+        link: '/hr/promotion-documents',
+        entityType: 'promotion_document',
+        entityId: promoDoc.rows[0].id,
+      });
+    }
+
     const message =
       hrDecision === 'approved'
         ? 'Document verified — you can now take the promotion exam.'
@@ -664,6 +698,17 @@ const reviewPromotionDocument = async (req, res) => {
       [req.user.id, 'REVIEW_PROMO_DOC', 'promotion_documents',
         req.params.id, `HR decision: ${decision}. Exam access: ${grantExamAccess}`]
     );
+
+    notifyTeacher(result.rows[0].teacher_id, {
+      type: 'promotion_document_reviewed',
+      title: `Promotion document ${decision}`,
+      message: grantExamAccess
+        ? 'Your promotion document was approved — you can now take the promotion exam.'
+        : `Your promotion document was reviewed: ${decision}.${hr_notes ? ` ${hr_notes}` : ''}`,
+      link: '/promotions',
+      entityType: 'promotion_document',
+      entityId: req.params.id,
+    });
 
     res.json({
       message: `Document ${decision}. Exam access ${grantExamAccess ? 'granted' : 'denied'}.`,

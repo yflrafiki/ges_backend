@@ -346,7 +346,7 @@ const getAuditLog = async (req, res) => {
         al.details, al.ip_address, al.created_at,
         u.email, u.role
       FROM audit_logs al
-      JOIN users u ON al.user_id = u.id
+      LEFT JOIN users u ON al.user_id = u.id
       WHERE 1=1
     `;
     const params = [];

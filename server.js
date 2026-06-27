@@ -36,6 +36,7 @@ const reportRoutes = require('./src/routes/reportRoutes');
 const examRoutes = require('./src/routes/examRoutes');
 const changeRequestRoutes = require('./src/routes/changeRequestRoutes');
 const blockchainReferenceRoutes = require('./src/routes/blockchainReferenceRoutes');
+const notificationRoutes = require('./src/routes/notificationRoutes');
 const path = require('path')
 
 const app = express();
@@ -105,6 +106,7 @@ app.use('/api/reports', reportRoutes);
 app.use('/api/exams', examRoutes);
 app.use('/api/change-requests', changeRequestRoutes);
 app.use('/api/blockchain', blockchainReferenceRoutes);
+app.use('/api/notifications', notificationRoutes);
 // Only profile photos are public (plain <img> tags can't send auth headers).
 // Certificates/documents are never served statically — see GET /api/documents/:id/file.
 app.use('/uploads/photos', express.static(path.join(__dirname, 'src/uploads/photos')));

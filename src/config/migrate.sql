@@ -128,6 +128,23 @@ ALTER TABLE teachers
 ALTER TABLE users
   ADD COLUMN IF NOT EXISTS full_name VARCHAR(255);
 
+-- In-app notifications (polled by the frontend every 30-60s) so HR/admin
+-- don't have to keep refreshing to see new requests, and teachers don't have
+-- to keep checking back for a decision on their application.
+CREATE TABLE IF NOT EXISTS notifications (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+  type VARCHAR(50) NOT NULL,
+  title VARCHAR(255) NOT NULL,
+  message TEXT,
+  link VARCHAR(255),
+  entity_type VARCHAR(50),
+  entity_id UUID,
+  read BOOLEAN DEFAULT false,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_notifications_user_unread ON notifications(user_id, read);
+
 -- Backfill for teacher accounts created before full_name existed — derives
 -- it from their teachers row so existing logins show a real name, not email.
 UPDATE users u

@@ -2,6 +2,7 @@ const pool = require('../config/db');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
+const { notifyHrForRegion, notifyTeacher } = require('../services/notificationService');
 
 const generateFileHash = (filePath) => {
   return new Promise((resolve, reject) => {
@@ -86,6 +87,15 @@ const createChangeRequest = async (req, res) => {
       [req.user.id, 'CREATE_CHANGE_REQUEST', 'change_requests', result.rows[0].id,
         `Teacher requested change to ${field_name}`]
     );
+
+    notifyHrForRegion(teacher.current_region, {
+      type: 'change_request',
+      title: 'New change request',
+      message: `${teacher.first_name} ${teacher.last_name} (${teacher.staff_id}) requested a change to their ${field_name.replace(/_/g, ' ')}.`,
+      link: '/hr/change-requests',
+      entityType: 'change_request',
+      entityId: result.rows[0].id,
+    });
 
     res.status(201).json({ message: 'Change request submitted for HR approval', request: result.rows[0] });
   } catch (err) {
@@ -213,6 +223,17 @@ const reviewChangeRequest = async (req, res) => {
       [req.user.id, 'REVIEW_CHANGE_REQUEST', 'change_requests', req.params.id,
         `Change request for ${changeRequest.field_name} ${status}`]
     );
+
+    notifyTeacher(changeRequest.teacher_id, {
+      type: 'change_request_reviewed',
+      title: `Change request ${status}`,
+      message: status === 'approved'
+        ? `Your request to change your ${changeRequest.field_name.replace(/_/g, ' ')} was approved.`
+        : `Your request to change your ${changeRequest.field_name.replace(/_/g, ' ')} was rejected.${hr_notes ? ` Reason: ${hr_notes}` : ''}`,
+      link: '/profile',
+      entityType: 'change_request',
+      entityId: req.params.id,
+    });
 
     res.json({ message: `Change request ${status}`, request: updated.rows[0] });
   } catch (err) {
