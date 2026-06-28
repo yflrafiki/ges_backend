@@ -200,8 +200,7 @@ const getTransferReport = async (req, res) => {
       total: result.rows.length,
       approved: result.rows.filter(r => r.status === 'approved').length,
       rejected: result.rows.filter(r => r.status === 'rejected').length,
-      pending: result.rows.filter(r => r.status === 'pending').length,
-      more_info: result.rows.filter(r => r.status === 'more_info').length
+      pending: result.rows.filter(r => r.status === 'pending').length
     };
 
     res.json({

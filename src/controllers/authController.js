@@ -2,7 +2,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const pool = require('../config/db');
-const { sendVerificationCode } = require('../services/emailService');
+const { sendVerificationCode, sendPasswordResetCode } = require('../services/emailService');
 require('dotenv').config();
 
 const CODE_EXPIRY_MS = 15 * 60 * 1000; // 15 minutes
@@ -116,8 +116,11 @@ const register = async (req, res) => {
     const verificationCode = generateVerificationCode();
     const codeExpiresAt = new Date(Date.now() + CODE_EXPIRY_MS);
 
+    // Display name uses title + last name (e.g. "Ms. Taylor") rather than
+    // the full personal name, for teachers specifically — title is the one
+    // field that's actually theirs to identify by formally.
     const displayName = normalizedRole === 'teacher'
-      ? `${first_name || ''} ${last_name || ''}`.trim()
+      ? (title ? `${title}. ${last_name || ''}`.trim() : `${first_name || ''} ${last_name || ''}`.trim())
       : nullable(full_name);
 
     const userResult = await client.query(
@@ -461,6 +464,94 @@ const resendVerificationCode = async (req, res) => {
   }
 };
 
+// @route  POST /api/auth/forgot-password
+// @access Public — identified by email only
+// Doesn't reveal whether the email exists, to avoid leaking which addresses
+// have accounts — always returns the same generic message.
+const forgotPassword = async (req, res) => {
+  const { email } = req.body || {};
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+  const genericMessage = { message: 'If an account exists for that email, a reset code has been sent to it.' };
+
+  if (!normalizedEmail) {
+    return res.status(400).json({ message: 'Email is required' });
+  }
+
+  try {
+    const result = await pool.query('SELECT id, email FROM users WHERE email = $1', [normalizedEmail]);
+    if (result.rows.length === 0) {
+      return res.json(genericMessage);
+    }
+
+    const user = result.rows[0];
+    const resetCode = generateVerificationCode();
+    const codeExpiresAt = new Date(Date.now() + CODE_EXPIRY_MS);
+
+    await pool.query(
+      'UPDATE users SET password_reset_code = $1, password_reset_code_expires_at = $2 WHERE id = $3',
+      [resetCode, codeExpiresAt, user.id]
+    );
+
+    sendPasswordResetCode(user.email, resetCode);
+
+    res.json(genericMessage);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error', error: err.message });
+  }
+};
+
+// @route  POST /api/auth/reset-password
+// @access Public — identified by email + the code sent to that email
+const resetPassword = async (req, res) => {
+  const { email, code, new_password } = req.body || {};
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+
+  if (!normalizedEmail || !code || !new_password) {
+    return res.status(400).json({ message: 'Email, code and new password are required' });
+  }
+
+  if (new_password.length < 6) {
+    return res.status(400).json({ message: 'New password must be at least 6 characters' });
+  }
+
+  try {
+    const result = await pool.query('SELECT * FROM users WHERE email = $1', [normalizedEmail]);
+    if (result.rows.length === 0) {
+      return res.status(400).json({ message: 'Invalid email or code' });
+    }
+
+    const user = result.rows[0];
+
+    if (!user.password_reset_code || user.password_reset_code !== String(code).trim()) {
+      return res.status(400).json({ message: 'Invalid code' });
+    }
+
+    if (!user.password_reset_code_expires_at || new Date(user.password_reset_code_expires_at) < new Date()) {
+      return res.status(400).json({ message: 'This code has expired. Request a new one.' });
+    }
+
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(new_password, salt);
+
+    await pool.query(
+      `UPDATE users SET password = $1, password_reset_code = NULL, password_reset_code_expires_at = NULL
+       WHERE id = $2`,
+      [hashedPassword, user.id]
+    );
+
+    await pool.query(
+      'INSERT INTO audit_logs (user_id, action, entity, details) VALUES ($1,$2,$3,$4)',
+      [user.id, 'RESET_PASSWORD', 'users', 'Password reset via emailed code']
+    );
+
+    res.json({ message: 'Password reset successfully. You can now log in with your new password.' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: 'Server error', error: err.message });
+  }
+};
+
 // @route  GET /api/auth/users?role=hr_officer&region=Greater%20Accra
 // @access Admin only
 const getUsersByRole = async (req, res) => {
@@ -490,4 +581,7 @@ const getUsersByRole = async (req, res) => {
   }
 };
 
-module.exports = { register, login, getMe, changePassword, verifyEmailCode, resendVerificationCode, getUsersByRole };
+module.exports = {
+  register, login, getMe, changePassword, verifyEmailCode, resendVerificationCode,
+  forgotPassword, resetPassword, getUsersByRole,
+};

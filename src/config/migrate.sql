@@ -145,9 +145,20 @@ CREATE TABLE IF NOT EXISTS notifications (
 );
 CREATE INDEX IF NOT EXISTS idx_notifications_user_unread ON notifications(user_id, read);
 
--- Backfill for teacher accounts created before full_name existed — derives
--- it from their teachers row so existing logins show a real name, not email.
+-- Teacher display name uses title + last name (e.g. "Ms. Taylor") instead of
+-- the full personal name. Recomputed unconditionally (not just WHERE NULL)
+-- so existing accounts pick up the new format too, not just brand new ones.
 UPDATE users u
-SET full_name = TRIM(CONCAT(t.first_name, ' ', t.last_name))
+SET full_name = CASE
+  WHEN t.title IS NOT NULL AND t.title != '' THEN TRIM(CONCAT(t.title, '. ', t.last_name))
+  ELSE TRIM(CONCAT(t.first_name, ' ', t.last_name))
+END
 FROM teachers t
-WHERE t.user_id = u.id AND u.role = 'teacher' AND u.full_name IS NULL;
+WHERE t.user_id = u.id AND u.role = 'teacher';
+
+-- Forgot-password flow reuses the same code+expiry pattern as email
+-- verification, just on separate columns so a pending verification code and
+-- a pending reset code can't ever clobber each other.
+ALTER TABLE users
+  ADD COLUMN IF NOT EXISTS password_reset_code VARCHAR(10),
+  ADD COLUMN IF NOT EXISTS password_reset_code_expires_at TIMESTAMP;

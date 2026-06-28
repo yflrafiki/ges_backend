@@ -215,8 +215,8 @@ const reviewTransfer = async (req, res) => {
     return res.status(400).json({ message: 'Status is required' });
   }
 
-  if (!['approved', 'rejected', 'more_info'].includes(status)) {
-    return res.status(400).json({ message: 'Status must be approved, rejected or more_info' });
+  if (!['approved', 'rejected'].includes(status)) {
+    return res.status(400).json({ message: 'Status must be approved or rejected' });
   }
 
   try {
@@ -232,7 +232,7 @@ const reviewTransfer = async (req, res) => {
 
     const application = appResult.rows[0];
 
-    if (application.status !== 'pending' && application.status !== 'more_info') {
+    if (application.status !== 'pending') {
       return res.status(400).json({ message: 'Application has already been reviewed' });
     }
 
@@ -302,9 +302,7 @@ const reviewTransfer = async (req, res) => {
       title: `Transfer ${status}`,
       message: status === 'approved'
         ? `Your transfer to ${application.requested_district}, ${application.requested_region} was approved.`
-        : status === 'rejected'
-          ? `Your transfer request was rejected.${hr_notes ? ` Reason: ${hr_notes}` : ''}`
-          : `HR requested more information on your transfer request.${hr_notes ? ` ${hr_notes}` : ''}`,
+        : `Your transfer request was rejected.${hr_notes ? ` Reason: ${hr_notes}` : ''}`,
       link: '/transfers',
       entityType: 'application',
       entityId: req.params.id,

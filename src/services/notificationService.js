@@ -47,15 +47,29 @@ const notifyUser = async (userId, { type, title, message, link, entityType, enti
   }
 };
 
+// HR officers and admins use different route prefixes for the same pages
+// (/hr/... vs /admin/...) — a notification built with one or the other
+// sends the wrong-role recipient to a route their account isn't authorized
+// for, which bounces them to /login and looks exactly like being logged out
+// even though their session is still perfectly valid.
+const linkForRole = (link, role) => {
+  if (!link) return link;
+  if (role === 'admin') return link.replace(/^\/hr\//, '/admin/');
+  if (role === 'hr_officer') return link.replace(/^\/admin\//, '/hr/');
+  return link;
+};
+
 // Notifies every HR officer assigned to a given region, plus all admins
 // (admins can act on anything regardless of region).
 const notifyHrForRegion = async (region, payload) => {
   try {
     const result = await pool.query(
-      `SELECT id FROM users WHERE (role = 'hr_officer' AND region = $1) OR role = 'admin'`,
+      `SELECT id, role FROM users WHERE (role = 'hr_officer' AND region = $1) OR role = 'admin'`,
       [region]
     );
-    await Promise.all(result.rows.map((u) => notifyUser(u.id, payload)));
+    await Promise.all(result.rows.map((u) =>
+      notifyUser(u.id, { ...payload, link: linkForRole(payload.link, u.role) })
+    ));
   } catch (err) {
     console.error('Failed to notify HR for region:', err.message);
   }

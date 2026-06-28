@@ -28,4 +28,26 @@ const sendVerificationCode = async (toEmail, code) => {
   }
 };
 
-module.exports = { sendVerificationCode };
+const sendPasswordResetCode = async (toEmail, code) => {
+  if (!sendgridConfigured) {
+    console.log(`[password-reset] SendGrid not configured. Reset code for ${toEmail}: ${code}`);
+    return;
+  }
+
+  try {
+    await sgMail.send({
+      from: process.env.SENDGRID_FROM,
+      to: toEmail,
+      subject: 'Your GES password reset code',
+      html: `
+        <p>A password reset was requested for your GES account. Use the code below to reset it:</p>
+        <p style="font-size:28px;font-weight:bold;letter-spacing:4px;">${code}</p>
+        <p>This code expires in 15 minutes. If you didn't request this, you can safely ignore this email.</p>
+      `,
+    });
+  } catch (err) {
+    console.error('Failed to send password reset email:', err.response?.body?.errors || err.message);
+  }
+};
+
+module.exports = { sendVerificationCode, sendPasswordResetCode };

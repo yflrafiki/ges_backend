@@ -14,6 +14,8 @@ CREATE TABLE IF NOT EXISTS users (
   created_by UUID REFERENCES users(id),
   email_verification_code VARCHAR(10),
   email_verification_code_expires_at TIMESTAMP,
+  password_reset_code VARCHAR(10),
+  password_reset_code_expires_at TIMESTAMP,
   created_at TIMESTAMP DEFAULT NOW()
 );
 
