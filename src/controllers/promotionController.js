@@ -71,10 +71,13 @@ const checkPromotionEligibility = async (req, res) => {
 
     res.json({
       teacher: {
-        name: `${teacher.first_name} ${teacher.last_name}`,
+        first_name: teacher.first_name,
+        last_name: teacher.last_name,
+        staff_id: teacher.staff_id,
         current_grade: teacher.current_grade,
         years_of_service: teacher.years_of_service,
-        qualification: teacher.qualification
+        qualification: teacher.qualification,
+        current_school: teacher.current_school
       },
       ...eligibility
     });
@@ -106,10 +109,13 @@ const getPromotionForm = async (req, res) => {
 
     res.json({
       teacher: {
-        name: `${teacher.first_name} ${teacher.last_name}`,
+        first_name: teacher.first_name,
+        last_name: teacher.last_name,
+        staff_id: teacher.staff_id,
         current_grade: teacher.current_grade,
         years_of_service: teacher.years_of_service,
-        qualification: teacher.qualification
+        qualification: teacher.qualification,
+        current_school: teacher.current_school
       },
       eligibility,
       form_fields: [
@@ -131,11 +137,10 @@ const getPromotionForm = async (req, res) => {
 // @route  POST /api/promotions
 // @access Teacher only
 const applyForPromotion = async (req, res) => {
-  const { reason } = req.body;
-
-  if (!reason) {
-    return res.status(400).json({ message: 'Reason for promotion is required' });
-  }
+  // A supporting document (uploaded right after this call, via
+  // submit-document) is the actual evidence now — a written reason is no
+  // longer required.
+  const reason = req.body.reason || null;
 
   try {
     const teacherResult = await pool.query(
@@ -219,10 +224,20 @@ const getMyPromotions = async (req, res) => {
       return res.status(404).json({ message: 'Teacher profile not found' });
     }
 
+    // Includes the linked promotion_documents/documents row (if any) so the
+    // frontend can show what was actually submitted and its verification
+    // status without relying on its own in-memory state — that state is
+    // lost on a page refresh, but this query reflects exactly what's true
+    // on the server, so a refreshed page can pick up right where it left off.
     const result = await pool.query(
-      `SELECT a.*, u.email as reviewed_by_email
+      `SELECT a.*, u.email as reviewed_by_email,
+        pd.id as promotion_document_id, pd.hr_decision, pd.hr_notes as document_hr_notes,
+        pd.submission_attempts, pd.exam_access_granted, pd.hr_reviewed,
+        d.file_name as document_file_name, d.ocr_status as document_ocr_status
        FROM applications a
        LEFT JOIN users u ON a.reviewed_by = u.id
+       LEFT JOIN promotion_documents pd ON pd.application_id = a.id
+       LEFT JOIN documents d ON d.id = pd.document_id
        WHERE a.teacher_id = $1 AND a.type = 'promotion'
        ORDER BY a.created_at DESC`,
       [teacherResult.rows[0].id]
