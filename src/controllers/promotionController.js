@@ -2,7 +2,7 @@ const pool = require('../config/db');
 const { recordPromotionDecision } = require('../services/blockchainService');
 const { validateAgainstTeacherRecord, parseDocumentFields, extractTextFromFile } = require('../services/ocrService');
 const { notifyHrForRegion, notifyTeacher } = require('../services/notificationService');
-const { GRADE_ORDER, MIN_YEARS_IN_RANK, getNextGrade, computeYearsInRank } = require('../services/rankService');
+const { GRADE_ORDER, MIN_YEARS_IN_RANK, getNextGrade, computeYearsInRank, computeYearsOfService } = require('../services/rankService');
 
 const checkEligibility = (teacher) => {
   const nextGrade = getNextGrade(teacher.current_grade);
@@ -54,7 +54,7 @@ const checkPromotionEligibility = async (req, res) => {
         last_name: teacher.last_name,
         staff_id: teacher.staff_id,
         current_grade: teacher.current_grade,
-        years_of_service: teacher.years_of_service,
+        years_of_service: computeYearsOfService(teacher.date_of_first_appointment),
         qualification: teacher.qualification,
         current_school: teacher.current_school
       },
@@ -92,7 +92,7 @@ const getPromotionForm = async (req, res) => {
         last_name: teacher.last_name,
         staff_id: teacher.staff_id,
         current_grade: teacher.current_grade,
-        years_of_service: teacher.years_of_service,
+        years_of_service: computeYearsOfService(teacher.date_of_first_appointment),
         qualification: teacher.qualification,
         current_school: teacher.current_school
       },

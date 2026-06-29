@@ -55,8 +55,6 @@ const register = async (req, res) => {
     date_of_current_posting, employment_status,
     // Health
     disability_status, disability_type,
-    // Service
-    years_of_service,
     // Display name for hr_officer/admin/examiner (teachers derive it from
     // first_name/last_name below instead)
     full_name
@@ -162,12 +160,11 @@ const register = async (req, res) => {
           national_date_of_present_rank,
           date_of_first_appointment, date_of_confirmation,
           date_of_current_posting, employment_status,
-          disability_status, disability_type,
-          years_of_service, date_of_birth)
+          disability_status, disability_type, date_of_birth)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,
                  $13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,
                  $25,$26,$27,$28,$29,$30,$31,
-                 $32,$33,$34,$35,$36,$37,$38,$39,$40)`,
+                 $32,$33,$34,$35,$36,$37,$38,$39)`,
         [
           user.id,
           nullable(staff_id),
@@ -207,7 +204,6 @@ const register = async (req, res) => {
           nullable(employment_status) || 'active',
           disability_status === 'true' || disability_status === true || false,
           nullable(disability_type),
-          years_of_service || 0,
           nullable(date_of_birth)
         ]
       );

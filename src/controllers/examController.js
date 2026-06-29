@@ -1,4 +1,5 @@
 const pool = require('../config/db');
+const { computeYearsOfService } = require('../services/rankService');
 
 const normalizeAnswerValue = (value) => {
   if (value === undefined || value === null) return '';
@@ -214,19 +215,8 @@ const getAvailableExams = async (req, res) => {
     );
 
     // Calculate years of service for exam eligibility
-    let yearsOfService = Number(teacher.years_of_service);
-    if (!Number.isFinite(yearsOfService) || yearsOfService === 0) {
-      if (teacher.date_of_first_appointment) {
-        const start = new Date(teacher.date_of_first_appointment);
-        if (!isNaN(start)) {
-          const now = new Date();
-          const diffMs = now - start;
-          yearsOfService = Math.floor(diffMs / (365.25 * 24 * 60 * 60 * 1000));
-        }
-      }
-    }
-
-    const isServiceEligible = Number.isFinite(yearsOfService) && yearsOfService > 3;
+    const yearsOfService = computeYearsOfService(teacher.date_of_first_appointment) ?? 0;
+    const isServiceEligible = yearsOfService > 3;
 
     // Get published exams with attempt status
     const result = await pool.query(

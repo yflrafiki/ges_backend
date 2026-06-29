@@ -30,4 +30,15 @@ const computeYearsInRank = (nationalDateOfPresentRank) => {
   return Math.floor(years * 100) / 100;
 };
 
-module.exports = { GRADE_ORDER, MIN_YEARS_IN_RANK, getNextGrade, computeYearsInRank };
+// Same idea for total years of service — derived from date_of_first_appointment
+// rather than a number anyone types in, for the same reason: a manually
+// entered count is correct on the day it's entered and wrong every day after.
+const computeYearsOfService = (dateOfFirstAppointment) => {
+  if (!dateOfFirstAppointment) return null;
+  const start = new Date(dateOfFirstAppointment);
+  if (isNaN(start)) return null;
+  const years = (Date.now() - start.getTime()) / (365.25 * 24 * 60 * 60 * 1000);
+  return Math.floor(years);
+};
+
+module.exports = { GRADE_ORDER, MIN_YEARS_IN_RANK, getNextGrade, computeYearsInRank, computeYearsOfService };
