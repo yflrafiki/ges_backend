@@ -2,49 +2,23 @@ const pool = require('../config/db');
 const { recordPromotionDecision } = require('../services/blockchainService');
 const { validateAgainstTeacherRecord, parseDocumentFields, extractTextFromFile } = require('../services/ocrService');
 const { notifyHrForRegion, notifyTeacher } = require('../services/notificationService');
-
-// Ghana Education Service rank ladder, lowest to highest — must match
-// GRADES in ges-hr-admin/src/constants/teacherOptions.ts, since that's what
-// the "Current Grade / Rank" picker offers when an account is created.
-const GRADE_ORDER = [
-  'Pupil Teacher', 'Superintendent II', 'Superintendent I',
-  'Senior Superintendent II', 'Senior Superintendent I', 'Principal Superintendent',
-  'Assistant Director II', 'Assistant Director I', 'Deputy Director',
-  'Director II', 'Director I', 'Deputy Director-General', 'Director-General',
-];
-
-// Eligibility rules: all grades qualify on more than 3 years of service
-const ELIGIBILITY_RULES = Object.fromEntries(
-  GRADE_ORDER.map((grade) => [grade, { minYears: 3, strict: true }])
-);
-
-const getNextGrade = (currentGrade) => {
-  const currentIndex = GRADE_ORDER.indexOf(currentGrade);
-  if (currentIndex === -1 || currentIndex === GRADE_ORDER.length - 1) return null;
-  return GRADE_ORDER[currentIndex + 1];
-};
+const { GRADE_ORDER, MIN_YEARS_IN_RANK, getNextGrade, computeYearsInRank } = require('../services/rankService');
 
 const checkEligibility = (teacher) => {
   const nextGrade = getNextGrade(teacher.current_grade);
 
-  // Calculate years of service: prefer explicit field, fall back to date_of_first_appointment
-  let yearsOfService = Number(teacher.years_of_service);
-  if (!Number.isFinite(yearsOfService) || yearsOfService === 0) {
-    if (teacher.date_of_first_appointment) {
-      const start = new Date(teacher.date_of_first_appointment);
-      if (!isNaN(start)) {
-        const now = new Date();
-        const diffMs = now - start;
-        yearsOfService = diffMs / (365.25 * 24 * 60 * 60 * 1000);
-      }
-    }
-  }
-
-  const haveYears = Number.isFinite(yearsOfService) ? yearsOfService : 0;
-  if (haveYears <= 3) {
+  const yearsInRank = computeYearsInRank(teacher.national_date_of_present_rank);
+  if (yearsInRank === null) {
     return {
       eligible: false,
-      reason: `More than 3 years of service required. You have ${haveYears.toFixed(2)} years.`
+      reason: 'National Date of Present Rank is not set on your record. Contact HR.'
+    };
+  }
+
+  if (yearsInRank < MIN_YEARS_IN_RANK) {
+    return {
+      eligible: false,
+      reason: `${MIN_YEARS_IN_RANK} years in your current rank required. You have ${yearsInRank.toFixed(2)} years.`
     };
   }
 
@@ -427,10 +401,15 @@ const reviewPromotion = async (req, res) => {
           [teacher.id, 'current_grade', teacher.current_grade, nextGrade, req.user.id]
         );
 
-        // Update teacher grade
+        // Update teacher grade — national_date_of_present_rank resets to
+        // today (the new rank's countdown starts now) and
+        // promotion_eligibility_notified resets so they get notified again
+        // once they become due for the next promotion.
         await pool.query(
           `UPDATE teachers SET
             current_grade = $1,
+            national_date_of_present_rank = CURRENT_DATE,
+            promotion_eligibility_notified = false,
             updated_at = NOW()
            WHERE id = $2`,
           [nextGrade, teacher.id]

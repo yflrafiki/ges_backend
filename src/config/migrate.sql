@@ -162,3 +162,24 @@ WHERE t.user_id = u.id AND u.role = 'teacher';
 ALTER TABLE users
   ADD COLUMN IF NOT EXISTS password_reset_code VARCHAR(10),
   ADD COLUMN IF NOT EXISTS password_reset_code_expires_at TIMESTAMP;
+
+-- Tracks whether a teacher has already been sent the "you're eligible for
+-- promotion" notification for their CURRENT rank, so the daily check doesn't
+-- re-notify them every day once they're past the threshold. Reset to false
+-- whenever they actually get promoted (new rank starts a fresh countdown).
+ALTER TABLE teachers
+  ADD COLUMN IF NOT EXISTS promotion_eligibility_notified BOOLEAN DEFAULT false;
+
+-- Web Push subscriptions (one per browser/device a user has granted
+-- notification permission on) — lets the backend deliver a real OS-level
+-- notification even when the app isn't open, unlike the SSE stream which
+-- only works while a tab is connected.
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+  endpoint TEXT NOT NULL UNIQUE,
+  p256dh VARCHAR(255) NOT NULL,
+  auth VARCHAR(255) NOT NULL,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user ON push_subscriptions(user_id);

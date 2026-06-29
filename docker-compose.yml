@@ -45,6 +45,9 @@ services:
       # the real API key never goes into this tracked file.
       SENDGRID_API_KEY: ${SENDGRID_API_KEY:-}
       SENDGRID_FROM: ${SENDGRID_FROM:-}
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-}
     volumes:
       - uploads_data:/app/src/uploads
       - ../ges_final_year_fabric/crypto-config:/app/fabric-crypto:ro

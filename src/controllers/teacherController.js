@@ -1,6 +1,7 @@
 const pool = require('../config/db');
 const path = require('path');
 const fs = require('fs');
+const { computeYearsInRank } = require('../services/rankService');
 
 // @route  GET /api/teachers/profile
 // @access Teacher only
@@ -23,6 +24,7 @@ const getMyProfile = async (req, res) => {
       teacher.passport_photo = teacher.passport_photo.replace(/^\//, '');
       teacher.passport_photo_url = `${req.protocol}://${req.get('host')}/${teacher.passport_photo}`;
     }
+    teacher.years_in_current_rank = computeYearsInRank(teacher.national_date_of_present_rank);
     res.json(teacher);
   } catch (err) {
     console.error(err);
@@ -133,7 +135,11 @@ const getAllTeachers = async (req, res) => {
 
     query += ` ORDER BY t.created_at DESC`;
     const result = await pool.query(query, params);
-    res.json({ count: result.rows.length, teachers: result.rows });
+    const teachers = result.rows.map((t) => ({
+      ...t,
+      years_in_current_rank: computeYearsInRank(t.national_date_of_present_rank),
+    }));
+    res.json({ count: teachers.length, teachers });
 
   } catch (err) {
     console.error(err);
@@ -170,7 +176,11 @@ const getTeacherById = async (req, res) => {
       [req.params.id]
     );
 
-    res.json({ teacher: result.rows[0], history: history.rows });
+    const teacher = {
+      ...result.rows[0],
+      years_in_current_rank: computeYearsInRank(result.rows[0].national_date_of_present_rank),
+    };
+    res.json({ teacher, history: history.rows });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Server error', error: err.message });
@@ -180,7 +190,9 @@ const getTeacherById = async (req, res) => {
 // @route  PUT /api/teachers/:id
 // @access HR Officer, Admin
 const updateTeacherById = async (req, res) => {
-  // HR can ONLY update these fields
+  // HR can ONLY update these fields. years_in_current_rank is deliberately
+  // not here — it's derived from national_date_of_present_rank on every
+  // read (see computeYearsInRank), never set directly.
   const {
     current_grade,
     current_school,
@@ -190,7 +202,6 @@ const updateTeacherById = async (req, res) => {
     qualification,
     years_of_service,
     national_date_of_present_rank,
-    years_in_current_rank,
     date_of_first_appointment,
     date_of_confirmation,
     date_of_current_posting,
@@ -223,7 +234,6 @@ const updateTeacherById = async (req, res) => {
       qualification,
       years_of_service,
       national_date_of_present_rank,
-      years_in_current_rank,
       date_of_first_appointment,
       date_of_confirmation,
       date_of_current_posting,
@@ -251,18 +261,17 @@ const updateTeacherById = async (req, res) => {
         qualification = COALESCE($6, qualification),
         years_of_service = COALESCE($7, years_of_service),
         national_date_of_present_rank = COALESCE($8, national_date_of_present_rank),
-        years_in_current_rank = COALESCE($9, years_in_current_rank),
-        date_of_first_appointment = COALESCE($10, date_of_first_appointment),
-        date_of_confirmation = COALESCE($11, date_of_confirmation),
-        date_of_current_posting = COALESCE($12, date_of_current_posting),
-        employment_status = COALESCE($13, employment_status),
+        date_of_first_appointment = COALESCE($9, date_of_first_appointment),
+        date_of_confirmation = COALESCE($10, date_of_confirmation),
+        date_of_current_posting = COALESCE($11, date_of_current_posting),
+        employment_status = COALESCE($12, employment_status),
         updated_at = NOW()
-       WHERE id = $14
+       WHERE id = $13
        RETURNING *`,
       [
         current_grade, current_school, current_district, current_region,
         subject_specialization, qualification, years_of_service,
-        national_date_of_present_rank, years_in_current_rank,
+        national_date_of_present_rank,
         date_of_first_appointment, date_of_confirmation,
         date_of_current_posting, employment_status,
         req.params.id
@@ -275,7 +284,11 @@ const updateTeacherById = async (req, res) => {
         `HR updated employment/professional details for teacher ${teacher.staff_id}`]
     );
 
-    res.json({ message: 'Teacher record updated successfully', teacher: updated.rows[0] });
+    const responseTeacher = {
+      ...updated.rows[0],
+      years_in_current_rank: computeYearsInRank(updated.rows[0].national_date_of_present_rank),
+    };
+    res.json({ message: 'Teacher record updated successfully', teacher: responseTeacher });
 
   } catch (err) {
     console.error(err);

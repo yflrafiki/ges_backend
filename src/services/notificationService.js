@@ -1,4 +1,5 @@
 const pool = require('../config/db');
+const { sendPushToUser } = require('./pushService');
 
 // Registry of currently-open SSE connections, per user — lets notifyUser()
 // push a notification the instant it's created instead of the recipient
@@ -42,6 +43,9 @@ const notifyUser = async (userId, { type, title, message, link, entityType, enti
       [userId, type, title, message || null, link || null, entityType || null, entityId || null]
     );
     pushToSSEClients(userId, result.rows[0]);
+    // OS-level push so the notification still reaches the user even if
+    // they don't have the app open in a browser tab right now.
+    sendPushToUser(userId, { title, message, link });
   } catch (err) {
     console.error('Failed to create notification:', err.message);
   }

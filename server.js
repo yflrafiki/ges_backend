@@ -37,7 +37,10 @@ const examRoutes = require('./src/routes/examRoutes');
 const changeRequestRoutes = require('./src/routes/changeRequestRoutes');
 const blockchainReferenceRoutes = require('./src/routes/blockchainReferenceRoutes');
 const notificationRoutes = require('./src/routes/notificationRoutes');
+const pushRoutes = require('./src/routes/pushRoutes');
 const path = require('path')
+const pool = require('./src/config/db');
+const { checkAndNotifyEligibleTeachers } = require('./src/services/promotionEligibilityService');
 
 const app = express();
 
@@ -107,6 +110,7 @@ app.use('/api/exams', examRoutes);
 app.use('/api/change-requests', changeRequestRoutes);
 app.use('/api/blockchain', blockchainReferenceRoutes);
 app.use('/api/notifications', notificationRoutes);
+app.use('/api/push', pushRoutes);
 // Only profile photos are public (plain <img> tags can't send auth headers).
 // Certificates/documents are never served statically — see GET /api/documents/:id/file.
 app.use('/uploads/photos', express.static(path.join(__dirname, 'src/uploads/photos')));
@@ -139,3 +143,15 @@ const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
 });
+
+// Promotion eligibility changes by the day (it's based on elapsed time
+// since national_date_of_present_rank), so there's no event to hook this
+// to — a periodic sweep is the only way to catch teachers as they cross the
+// threshold. Runs once at boot, then every 24h.
+const DAY_MS = 24 * 60 * 60 * 1000;
+pool.ready
+  .then(() => {
+    checkAndNotifyEligibleTeachers();
+    setInterval(checkAndNotifyEligibleTeachers, DAY_MS);
+  })
+  .catch((err) => console.error('Skipping promotion eligibility check — DB not ready:', err.message));
