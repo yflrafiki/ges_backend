@@ -23,7 +23,7 @@ const generateToken = (user) => {
 };
 
 // @route  POST /api/auth/register
-// @access Admin (any role) or HR officer (teacher accounts only)
+// @access Admin only
 const register = async (req, res) => {
   console.log('BODY RECEIVED:', { ...req.body, password: req.body?.password ? '[redacted]' : undefined });
 
@@ -82,14 +82,6 @@ const register = async (req, res) => {
   const allowedRoles = ['teacher', 'hr_officer', 'admin', 'examiner'];
   if (!allowedRoles.includes(normalizedRole)) {
     return res.status(400).json({ message: 'Invalid role' });
-  }
-
-  // HR officers can create teacher accounts only — creating HR/admin/
-  // examiner accounts stays admin-only (the route also allows hr_officer
-  // through so they can reach this endpoint at all, so this check is the
-  // actual enforcement boundary for that restriction).
-  if (req.user.role === 'hr_officer' && normalizedRole !== 'teacher') {
-    return res.status(403).json({ message: 'HR officers can only create teacher accounts' });
   }
 
   if (normalizedRole === 'teacher' && (!staff_id || !first_name || !last_name)) {

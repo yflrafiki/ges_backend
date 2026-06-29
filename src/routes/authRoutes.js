@@ -13,7 +13,7 @@ const registrationDocs = upload.fields([
   { name: 'appointment_letter', maxCount: 1 },
 ]);
 
-router.post('/register', protect, authorize('admin', 'hr_officer'), registrationDocs, register);
+router.post('/register', protect, authorize('admin'), registrationDocs, register);
 router.post('/login', login);
 router.post('/verify-email-code', verifyEmailCode);
 router.post('/resend-verification-code', resendVerificationCode);
