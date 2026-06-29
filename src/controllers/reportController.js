@@ -14,9 +14,10 @@ const getDashboardSummary = async (req, res) => {
       ? await pool.query('SELECT COUNT(*) FROM teachers WHERE current_region = $1', [req.user.region])
       : await pool.query('SELECT COUNT(*) FROM teachers');
 
-    // Total HR officers — admin only sees this meaningfully (system-wide), but
-    // it's cheap to compute either way.
+    // Total HR officers / examiners — admin only sees these meaningfully
+    // (system-wide), but it's cheap to compute either way.
     const hrOfficersCount = await pool.query("SELECT COUNT(*) FROM users WHERE role = 'hr_officer'");
+    const examinersCount = await pool.query("SELECT COUNT(*) FROM users WHERE role = 'examiner'");
 
     // Total applications — for HR, only ones relevant to their region:
     // transfers requesting their region, promotions/others from teachers currently in their region.
@@ -126,6 +127,7 @@ const getDashboardSummary = async (req, res) => {
       summary: {
         total_teachers: parseInt(teachersCount.rows[0].count),
         total_hr_officers: parseInt(hrOfficersCount.rows[0].count),
+        total_examiners: parseInt(examinersCount.rows[0].count),
         total_applications: parseInt(applicationsCount.rows[0].count),
         recent_applications_7days: parseInt(recentApplications.rows[0].count)
       },

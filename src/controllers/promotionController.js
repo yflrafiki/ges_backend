@@ -3,20 +3,25 @@ const { recordPromotionDecision } = require('../services/blockchainService');
 const { validateAgainstTeacherRecord, parseDocumentFields, extractTextFromFile } = require('../services/ocrService');
 const { notifyHrForRegion, notifyTeacher } = require('../services/notificationService');
 
+// Ghana Education Service rank ladder, lowest to highest — must match
+// GRADES in ges-hr-admin/src/constants/teacherOptions.ts, since that's what
+// the "Current Grade / Rank" picker offers when an account is created.
+const GRADE_ORDER = [
+  'Pupil Teacher', 'Superintendent II', 'Superintendent I',
+  'Senior Superintendent II', 'Senior Superintendent I', 'Principal Superintendent',
+  'Assistant Director II', 'Assistant Director I', 'Deputy Director',
+  'Director II', 'Director I', 'Deputy Director-General', 'Director-General',
+];
+
 // Eligibility rules: all grades qualify on more than 3 years of service
-const ELIGIBILITY_RULES = {
-  'Grade C': { minYears: 3, strict: true },
-  'Grade B': { minYears: 3, strict: true },
-  'Grade A': { minYears: 3, strict: true },
-  'Principal': { minYears: 3, strict: true },
-  'Director': { minYears: 3, strict: true },
-};
+const ELIGIBILITY_RULES = Object.fromEntries(
+  GRADE_ORDER.map((grade) => [grade, { minYears: 3, strict: true }])
+);
 
 const getNextGrade = (currentGrade) => {
-  const gradeOrder = ['Grade C', 'Grade B', 'Grade A', 'Principal', 'Director'];
-  const currentIndex = gradeOrder.indexOf(currentGrade);
-  if (currentIndex === -1 || currentIndex === gradeOrder.length - 1) return null;
-  return gradeOrder[currentIndex + 1];
+  const currentIndex = GRADE_ORDER.indexOf(currentGrade);
+  if (currentIndex === -1 || currentIndex === GRADE_ORDER.length - 1) return null;
+  return GRADE_ORDER[currentIndex + 1];
 };
 
 const checkEligibility = (teacher) => {
@@ -45,7 +50,7 @@ const checkEligibility = (teacher) => {
 
   if (!nextGrade) {
     if (!teacher.current_grade) {
-      return { eligible: true, nextGrade: 'Grade C' };
+      return { eligible: true, nextGrade: GRADE_ORDER[0] };
     }
     return { eligible: false, reason: 'Teacher is already at the highest grade' };
   }

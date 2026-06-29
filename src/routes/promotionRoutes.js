@@ -27,7 +27,9 @@ router.put('/documents/:id/review', protect, authorize('hr_officer', 'admin'), r
 
 // Dynamic routes
 router.post('/:id/submit-document', protect, authorize('teacher'), ensureTeacherProfile, submitPromotionDocument);
-router.put('/:id/review', protect, authorize('hr_officer', 'admin'), reviewPromotion);
+// Approving/rejecting a promotion is an HR-only decision — admins can see
+// every application and who decided it, but don't make the call themselves.
+router.put('/:id/review', protect, authorize('hr_officer'), reviewPromotion);
 router.get('/:id', protect, authorize('teacher', 'hr_officer', 'admin'), getPromotionById);
 
 module.exports = router;
