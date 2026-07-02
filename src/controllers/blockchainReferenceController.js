@@ -1,6 +1,7 @@
 const pool = require('../config/db');
 const crypto = require('crypto');
 const fs = require('fs');
+const minio = require('../services/minioService');
 const { extractTextFromFile, parseDocumentFields } = require('../services/ocrService');
 const { qualCertId, licenseCertId } = require('../services/blockchainVerifyService');
 const { invokeChaincodeWithTxId } = require('../services/fabricClient');
@@ -31,14 +32,16 @@ const uploadReference = async (req, res) => {
       });
     }
 
-    // Generate hash from file content
+    // Hash + OCR from the temp file (multer still writes to disk)
     const fileBuffer = fs.readFileSync(req.file.path);
     const documentHash = generateHash(fileBuffer);
 
-    // OCR the certificate so we anchor what's actually printed on it, not just
-    // what the admin typed — falls back to manual form fields if OCR finds nothing.
     const ocrResult = await extractTextFromFile(req.file.path);
     const ocrFields = ocrResult.success ? parseDocumentFields(ocrResult.text) : {};
+
+    // Upload to MinIO then remove temp file
+    await minio.uploadFromPath(minio.BUCKETS.DOCUMENTS, req.file.filename, req.file.path, req.file.mimetype);
+    fs.unlink(req.file.path, () => {});
 
     const isQualification = document_type === 'degree' || document_type === 'diploma';
     const isLicense = document_type === 'teaching_license' || document_type === 'ntc_certificate';

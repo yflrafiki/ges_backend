@@ -40,6 +40,7 @@ const notificationRoutes = require('./src/routes/notificationRoutes');
 const pushRoutes = require('./src/routes/pushRoutes');
 const path = require('path')
 const pool = require('./src/config/db');
+const minio = require('./src/services/minioService');
 const { checkAndNotifyEligibleTeachers } = require('./src/services/promotionEligibilityService');
 
 const app = express();
@@ -111,9 +112,8 @@ app.use('/api/change-requests', changeRequestRoutes);
 app.use('/api/blockchain', blockchainReferenceRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/push', pushRoutes);
-// Only profile photos are public (plain <img> tags can't send auth headers).
-// Certificates/documents are never served statically — see GET /api/documents/:id/file.
-app.use('/uploads/photos', express.static(path.join(__dirname, 'src/uploads/photos')));
+// Photos are served directly from MinIO (public bucket). No static middleware needed.
+// Documents stream through /api/documents/:id/file (authenticated).
 
 // Test route
 app.get('/', (req, res) => {
@@ -143,6 +143,11 @@ const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
 });
+
+// Ensure MinIO buckets exist with correct access policies at startup.
+minio.ensureBuckets().catch((err) =>
+  console.error('[MinIO] Bucket init failed — file uploads will not work until MinIO is reachable:', err.message)
+);
 
 // Promotion eligibility changes by the day (it's based on elapsed time
 // since national_date_of_present_rank), so there's no event to hook this

@@ -1,7 +1,15 @@
 const pool = require('../config/db');
-const path = require('path');
 const fs = require('fs');
+const minio = require('../services/minioService');
 const { computeYearsInRank, computeYearsOfService } = require('../services/rankService');
+
+// Resolve photo URL regardless of whether the DB stores the old local path
+// ("uploads/photos/FILE") or the new MinIO object name ("FILE").
+const photoUrl = (stored) => {
+  if (!stored) return null;
+  const objectName = stored.replace(/^uploads\/photos\//, '');
+  return minio.getPublicUrl(objectName);
+};
 
 // @route  GET /api/teachers/profile
 // @access Teacher only
@@ -21,8 +29,7 @@ const getMyProfile = async (req, res) => {
     }
     const teacher = result.rows[0];
     if (teacher.passport_photo) {
-      teacher.passport_photo = teacher.passport_photo.replace(/^\//, '');
-      teacher.passport_photo_url = `${req.protocol}://${req.get('host')}/${teacher.passport_photo}`;
+      teacher.passport_photo_url = photoUrl(teacher.passport_photo);
     }
     teacher.years_in_current_rank = computeYearsInRank(teacher.national_date_of_present_rank);
     teacher.years_of_service = computeYearsOfService(teacher.date_of_first_appointment);
@@ -66,10 +73,13 @@ const updateMyProfile = async (req, res) => {
       }
     }
 
-    // Handle passport photo upload
+    // Handle passport photo upload — store to MinIO, keep object name in DB
     let passport_photo = teacher.passport_photo;
     if (req.file) {
-      passport_photo = `uploads/photos/${req.file.filename}`;
+      const objectName = req.file.filename;
+      await minio.uploadFromPath(minio.BUCKETS.PHOTOS, objectName, req.file.path, req.file.mimetype);
+      fs.unlink(req.file.path, () => {});
+      passport_photo = objectName;
     }
 
     const updated = await pool.query(
@@ -90,8 +100,7 @@ const updateMyProfile = async (req, res) => {
 
     const updatedTeacher = updated.rows[0];
     if (updatedTeacher.passport_photo) {
-      updatedTeacher.passport_photo = updatedTeacher.passport_photo.replace(/^\//, '');
-      updatedTeacher.passport_photo_url = `${req.protocol}://${req.get('host')}/${updatedTeacher.passport_photo}`;
+      updatedTeacher.passport_photo_url = photoUrl(updatedTeacher.passport_photo);
     }
 
     res.json({ message: 'Profile updated successfully', teacher: updatedTeacher });

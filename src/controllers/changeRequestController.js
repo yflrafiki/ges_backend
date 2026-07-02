@@ -1,7 +1,7 @@
 const pool = require('../config/db');
 const fs = require('fs');
-const path = require('path');
 const crypto = require('crypto');
+const minio = require('../services/minioService');
 const { notifyHrForRegion, notifyTeacher } = require('../services/notificationService');
 
 const generateFileHash = (filePath) => {
@@ -70,9 +70,15 @@ const createChangeRequest = async (req, res) => {
       return res.status(400).json({ message: 'You already have a pending change request for this field' });
     }
 
-    const documentPath = req.file ? `uploads/documents/${req.file.filename}` : null;
-    const documentHash = req.file ? await generateFileHash(req.file.path) : null;
+    let documentPath = null;
+    let documentHash = null;
     const documentName = req.file ? req.file.originalname : null;
+    if (req.file) {
+      documentHash = await generateFileHash(req.file.path);
+      documentPath = req.file.filename; // MinIO object name
+      await minio.uploadFromPath(minio.BUCKETS.DOCUMENTS, req.file.filename, req.file.path, req.file.mimetype);
+      fs.unlink(req.file.path, () => {});
+    }
 
     const result = await pool.query(
       `INSERT INTO change_requests

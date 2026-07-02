@@ -29,6 +29,8 @@ services:
     environment:
       PORT: 5000
       NODE_ENV: production
+      # Neon cloud Postgres — DATABASE_URL makes the individual DB_* vars below unused
+      DATABASE_URL: ${DATABASE_URL:-}
       DB_HOST: postgres
       DB_PORT: 5432
       DB_NAME: ges_db
@@ -41,15 +43,20 @@ services:
       FABRIC_CHAINCODE: ges-verify
       FABRIC_GES_PEER: peer0.ges.ges.edu.gh:7051
       FABRIC_GES_PEER_HOST: peer0.ges.ges.edu.gh
-      # Read from ges/.env (gitignored) via Compose's own .env substitution —
-      # the real API key never goes into this tracked file.
+      # Firebase Cloud Storage
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:-}
+      FIREBASE_PRIVATE_KEY_ID: ${FIREBASE_PRIVATE_KEY_ID:-}
+      FIREBASE_PRIVATE_KEY: ${FIREBASE_PRIVATE_KEY:-}
+      FIREBASE_CLIENT_EMAIL: ${FIREBASE_CLIENT_EMAIL:-}
+      FIREBASE_CLIENT_ID: ${FIREBASE_CLIENT_ID:-}
+      FIREBASE_STORAGE_BUCKET: ${FIREBASE_STORAGE_BUCKET:-}
+      # Read from ges/.env (gitignored) via Compose's own .env substitution
       SENDGRID_API_KEY: ${SENDGRID_API_KEY:-}
       SENDGRID_FROM: ${SENDGRID_FROM:-}
       VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
       VAPID_SUBJECT: ${VAPID_SUBJECT:-}
     volumes:
-      - uploads_data:/app/src/uploads
       - ../ges_final_year_fabric/crypto-config:/app/fabric-crypto:ro
     depends_on:
       postgres:
@@ -64,11 +71,7 @@ networks:
   fabric_network:
     external: true
     # Run `docker network ls | grep ges-network` to confirm this matches your setup.
-    # Scripts in ges_final_year_fabric/ pin COMPOSE_PROJECT_NAME=ges-network, which
-    # produces "ges-network_ges-network" — but a network bootstrapped before that fix
-    # (or any other way) may be named "ges_final_year_fabric_ges-network" instead.
     name: ges_final_year_fabric_ges-network
 
 volumes:
   postgres_data:
-  uploads_data:

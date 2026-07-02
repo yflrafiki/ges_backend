@@ -1,8 +1,10 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
+const fs = require('fs');
 const pool = require('../config/db');
 const { sendVerificationCode, sendPasswordResetCode } = require('../services/emailService');
+const minio = require('../services/minioService');
 require('dotenv').config();
 
 const CODE_EXPIRY_MS = 15 * 60 * 1000; // 15 minutes
@@ -60,12 +62,17 @@ const register = async (req, res) => {
     full_name
   } = req.body || {};
 
-  const nss_certificate_path = req.files?.nss_certificate?.[0]
-    ? `uploads/documents/${req.files.nss_certificate[0].filename}` : null;
-  const degree_certificate_path = req.files?.degree_certificate?.[0]
-    ? `uploads/documents/${req.files.degree_certificate[0].filename}` : null;
-  const appointment_letter_path = req.files?.appointment_letter?.[0]
-    ? `uploads/documents/${req.files.appointment_letter[0].filename}` : null;
+  // Upload registration documents to MinIO; store object name in DB.
+  const uploadRegDoc = async (fileObj) => {
+    if (!fileObj) return null;
+    const objectName = fileObj.filename;
+    await minio.uploadFromPath(minio.BUCKETS.DOCUMENTS, objectName, fileObj.path, fileObj.mimetype);
+    fs.unlink(fileObj.path, () => {});
+    return objectName;
+  };
+  const nss_certificate_path    = await uploadRegDoc(req.files?.nss_certificate?.[0]);
+  const degree_certificate_path  = await uploadRegDoc(req.files?.degree_certificate?.[0]);
+  const appointment_letter_path  = await uploadRegDoc(req.files?.appointment_letter?.[0]);
 
   const normalizedEmail = String(email || '').trim().toLowerCase();
   const normalizedRole = String(role || '').trim().toLowerCase();
