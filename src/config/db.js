@@ -31,6 +31,11 @@ const pool = new Pool(poolConfig);
 console.log('Database config:', useDatabaseUrl ? 'DATABASE_URL' : `${process.env.DB_USER}@${process.env.DB_HOST}:${process.env.DB_PORT}/${process.env.DB_NAME}`);
 
 const initializeDatabase = async () => {
+  // In production the schema is already applied — skip the round-trips to Neon.
+  if (process.env.NODE_ENV === 'production') {
+    console.log('Production mode — skipping schema init');
+    return;
+  }
   try {
     const schemaPath = path.join(__dirname, 'schema.sql');
     const schemaSql = fs.readFileSync(schemaPath, 'utf8');
