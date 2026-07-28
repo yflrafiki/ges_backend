@@ -96,7 +96,7 @@ const chat = async (req, res) => {
     return res.status(400).json({ message: 'messages array is required' });
   }
 
-  const role = req.user?.role || 'teacher';
+  const role = userContext?.role || req.user?.role || 'teacher';
   const roleLabel = ROLE_LABELS[role] || 'GES Teacher';
   const systemPrompt = SYSTEM_PROMPTS[role] || SYSTEM_PROMPTS.teacher;
 
