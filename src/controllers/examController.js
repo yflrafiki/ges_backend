@@ -1,5 +1,6 @@
 const pool = require('../config/db');
-const { computeYearsOfService } = require('../services/rankService');
+const { getNextGrade, computeYearsOfService } = require('../services/rankService');
+const { notifyTeacher } = require('../services/notificationService');
 
 const normalizeAnswerValue = (value) => {
   if (value === undefined || value === null) return '';
@@ -441,20 +442,87 @@ const submitExam = async (req, res) => {
       [score, passed, attempt_id]
     );
 
+    // If the teacher passed, automatically advance their grade to the next rank.
+    // This is the exam-based promotion path: no separate HR approval needed.
+    let promotedFrom = null;
+    let promotedTo   = null;
+
+    if (passed) {
+      const teacherData = await pool.query(
+        'SELECT * FROM teachers WHERE id = $1',
+        [teacher_id]
+      );
+      const teacher = teacherData.rows[0];
+      const nextGrade = getNextGrade(teacher.current_grade);
+
+      if (nextGrade) {
+        promotedFrom = teacher.current_grade;
+        promotedTo   = nextGrade;
+
+        // Record the change in history so HR can audit it
+        await pool.query(
+          `INSERT INTO teacher_history (teacher_id, changed_field, old_value, new_value, changed_by)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [teacher.id, 'current_grade', promotedFrom, promotedTo, req.user.id]
+        );
+
+        // Advance the grade; reset rank clock so the 4-year countdown for the
+        // next promotion starts from today, and clear the eligibility flag so
+        // the teacher will be notified again when they qualify for the one after.
+        await pool.query(
+          `UPDATE teachers SET
+            current_grade = $1,
+            national_date_of_present_rank = CURRENT_DATE,
+            promotion_eligibility_notified = false,
+            updated_at = NOW()
+           WHERE id = $2`,
+          [nextGrade, teacher.id]
+        );
+
+        // Notify the teacher
+        notifyTeacher(teacher.id, {
+          type: 'exam_promoted',
+          title: 'Congratulations! You have been promoted',
+          message: `You passed the exam and your rank has been updated from ${promotedFrom} to ${promotedTo}.`,
+          link: '/profile',
+          entityType: 'exam_attempts',
+          entityId: attempt_id,
+        });
+
+        // Close out the promotion application this exam was gating — without
+        // this, it stays 'pending' forever even though the teacher has
+        // already been promoted, so it would keep showing up as unresolved
+        // in HR's queue.
+        await pool.query(
+          `UPDATE applications SET
+            status = 'approved',
+            hr_notes = 'Auto-approved: document verified and promotion exam passed.',
+            reviewed_at = NOW(),
+            updated_at = NOW()
+           WHERE teacher_id = $1 AND type = 'promotion' AND status = 'pending'`,
+          [teacher.id]
+        );
+      }
+    }
+
     // Audit log
     await pool.query(
       'INSERT INTO audit_logs (user_id, action, entity, entity_id, details) VALUES ($1,$2,$3,$4,$5)',
       [req.user.id, 'SUBMIT_EXAM', 'exam_attempts', attempt_id,
-        `Exam submitted. Score: ${score}/${total_marks}. ${passed ? 'PASSED' : 'FAILED'}`]
+        `Exam submitted. Score: ${score}/${total_marks}. ${passed ? `PASSED — promoted to ${promotedTo}` : 'FAILED'}`]
     );
 
     res.json({
-      message: 'Exam submitted successfully',
+      message: passed
+        ? `Congratulations! You passed and have been promoted to ${promotedTo}.`
+        : 'Exam submitted. You did not reach the pass mark.',
       score,
       total_marks,
       pass_mark,
       passed,
-      percentage: Math.round((score / total_marks) * 100)
+      percentage: Math.round((score / total_marks) * 100),
+      promoted_from: promotedFrom,
+      promoted_to:   promotedTo,
     });
 
   } catch (err) {

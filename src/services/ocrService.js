@@ -1,5 +1,6 @@
 const Tesseract = require('tesseract.js');
 const mammoth = require('mammoth');
+const pdfParse = require('pdf-parse');
 const path = require('path');
 const fs = require('fs');
 const pool = require('../config/db');
@@ -70,30 +71,39 @@ const extractFromDocx = async (filePath) => {
   }
 };
 
-// Extract text from PDF
+// Extract text from PDF. Tesseract cannot read PDFs directly — it only OCRs
+// rasterized images — so a digitally-generated PDF (the common case for
+// certificates/letters) needs its embedded text layer read with pdf-parse
+// instead. A scanned/image-only PDF has no text layer and can't be OCR'd
+// here without a PDF-to-image rasterizer, which isn't installed.
 const extractFromPdf = async (filePath) => {
   try {
     console.log('Processing PDF:', path.basename(filePath));
-    // For PDFs we use Tesseract on the file directly
-    // Tesseract can handle some PDFs
-    const result = await Tesseract.recognize(filePath, 'eng', {
-      logger: (m) => {
-        if (m.status === 'recognizing text') {
-          process.stdout.write(`\rPDF OCR Progress: ${Math.round(m.progress * 100)}%`);
-        }
-      }
-    });
-    console.log('\nPDF processing complete');
+    const dataBuffer = fs.readFileSync(filePath);
+    const data = await pdfParse(dataBuffer);
+    const text = (data.text || '').trim();
+
+    if (text.length > 10) {
+      console.log(`PDF text layer extracted. Characters: ${text.length}`);
+      return {
+        success: true,
+        text,
+        confidence: 100,
+        isImage: false,
+        method: 'pdf_text_layer'
+      };
+    }
+
+    console.log('PDF has no usable text layer — likely a scanned document');
     return {
       success: true,
-      text: result.data.text.trim() || '[No text extracted from PDF]',
-      confidence: result.data.confidence,
+      text: '[Scanned PDF with no extractable text layer — upload a clear photo/scan as an image instead for OCR]',
+      confidence: 0,
       isImage: false,
-      method: 'pdf_ocr'
+      method: 'pdf_no_text_layer'
     };
   } catch (err) {
     console.error('PDF extraction error:', err);
-    // Return empty but successful so the document is still saved
     return {
       success: true,
       text: '[PDF document — text extraction not available]',

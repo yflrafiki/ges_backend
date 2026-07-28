@@ -5,7 +5,8 @@ const crypto = require('crypto');
 const {
   extractTextFromFile,
   parseDocumentFields,
-  validateAgainstTeacherRecord
+  validateAgainstTeacherRecord,
+  detectCertType
 } = require('../services/ocrService');
 const { anchorDocumentHash, verifyOnChain } = require('../services/blockchainVerifyService');
 const minio = require('../services/minioService');
@@ -147,11 +148,18 @@ const processDocumentVerification = async (
       const parsedFields = parseDocumentFields(ocrResult.text);
       const validation   = await validateAgainstTeacherRecord(teacherId, parsedFields);
 
+      // Teachers no longer pick a document type before uploading — detect it
+      // from what OCR actually found instead of trusting a pre-upload guess.
+      // Falls back to whatever type the caller passed in (still used by
+      // non-promotion upload paths) when detection can't tell.
+      const detectedType = detectCertType(ocrResult.text, parsedFields);
+      const effectiveType = detectedType === 'general' ? documentType : detectedType;
+
       let blockchainCheck = null;
-      if (documentType === 'qualification' || documentType === 'license') {
+      if (effectiveType === 'qualification' || effectiveType === 'license') {
         try {
-          blockchainCheck = await verifyOnChain(documentType, staffId, teacherName, parsedFields);
-          console.log(`On-chain credential check (${documentType}):`, blockchainCheck.result, blockchainCheck.message);
+          blockchainCheck = await verifyOnChain(effectiveType, staffId, teacherName, parsedFields);
+          console.log(`On-chain credential check (${effectiveType}):`, blockchainCheck.result, blockchainCheck.message);
         } catch (err) {
           console.error('On-chain credential check error:', err.message);
           blockchainCheck = { found: false, result: 'error', message: err.message };
@@ -192,9 +200,10 @@ const processDocumentVerification = async (
         `UPDATE documents SET
           ocr_extracted_text = $1,
           ocr_status = 'completed',
-          ocr_validation = $2
-         WHERE id = $3`,
-        [ocrResult.text, validationSummary, documentId]
+          ocr_validation = $2,
+          document_type = $3
+         WHERE id = $4`,
+        [ocrResult.text, validationSummary, effectiveType, documentId]
       );
 
       await pool.query(

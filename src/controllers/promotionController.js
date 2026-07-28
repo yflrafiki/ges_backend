@@ -246,11 +246,13 @@ const getAllPromotions = async (req, res) => {
     let query = `
       SELECT a.*,
         t.first_name, t.last_name, t.staff_id,
-        t.current_grade, t.years_of_service, t.qualification,
-        u.email as reviewed_by_email
+        t.current_grade, t.date_of_first_appointment, t.qualification,
+        u.email as reviewed_by_email,
+        pd.hr_decision as document_hr_decision, pd.exam_access_granted
        FROM applications a
        JOIN teachers t ON a.teacher_id = t.id
        LEFT JOIN users u ON a.reviewed_by = u.id
+       LEFT JOIN promotion_documents pd ON pd.application_id = a.id
        WHERE a.type = 'promotion'
     `;
     const params = [];
@@ -270,9 +272,14 @@ const getAllPromotions = async (req, res) => {
 
     const result = await pool.query(query, params);
 
+    const applications = result.rows.map((row) => ({
+      ...row,
+      years_of_service: computeYearsOfService(row.date_of_first_appointment)
+    }));
+
     res.json({
-      count: result.rows.length,
-      applications: result.rows
+      count: applications.length,
+      applications
     });
 
   } catch (err) {
@@ -294,11 +301,13 @@ const getPromotionById = async (req, res) => {
     const result = await pool.query(
       `SELECT a.*,
         t.first_name, t.last_name, t.staff_id,
-        t.current_grade, t.years_of_service, t.qualification,
-        u.email as reviewed_by_email
+        t.current_grade, t.date_of_first_appointment, t.qualification,
+        u.email as reviewed_by_email,
+        pd.hr_decision as document_hr_decision, pd.exam_access_granted
        FROM applications a
        JOIN teachers t ON a.teacher_id = t.id
        LEFT JOIN users u ON a.reviewed_by = u.id
+       LEFT JOIN promotion_documents pd ON pd.application_id = a.id
        WHERE a.id = $1 AND a.type = 'promotion'`,
       [req.params.id]
     );
@@ -325,7 +334,10 @@ const getPromotionById = async (req, res) => {
       }
     }
 
-    res.json(result.rows[0]);
+    res.json({
+      ...result.rows[0],
+      years_of_service: computeYearsOfService(result.rows[0].date_of_first_appointment)
+    });
 
   } catch (err) {
     console.error(err);
@@ -622,7 +634,7 @@ const getPromotionDocuments = async (req, res) => {
     let query = `
       SELECT pd.*,
         t.first_name, t.last_name, t.staff_id, t.current_grade,
-        t.qualification, t.years_of_service,
+        t.qualification, t.date_of_first_appointment,
         d.file_name, d.file_type, d.ocr_status, d.ocr_extracted_text,
         a.reason as application_reason, a.status as application_status,
         u.email as reviewed_by_email
@@ -642,7 +654,12 @@ const getPromotionDocuments = async (req, res) => {
 
     const result = await pool.query(query, params);
 
-    res.json({ count: result.rows.length, documents: result.rows });
+    const documents = result.rows.map((row) => ({
+      ...row,
+      years_of_service: computeYearsOfService(row.date_of_first_appointment)
+    }));
+
+    res.json({ count: documents.length, documents });
 
   } catch (err) {
     console.error(err);

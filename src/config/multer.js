@@ -28,17 +28,15 @@ const fileFilter = (req, file, cb) => {
   const allowedMimes = [
     'image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp',
     'application/pdf',
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    'application/msword',
   ];
 
-  const allowedExts = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.pdf', '.docx', '.doc'];
+  const allowedExts = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.pdf'];
   const ext = path.extname(file.originalname).toLowerCase();
 
   if (allowedMimes.includes(file.mimetype) || allowedExts.includes(ext)) {
     cb(null, true);
   } else {
-    cb(new Error(`File type not allowed. Allowed: JPG, PNG, PDF, DOCX`), false);
+    cb(new Error(`File type not allowed. Only PDF and images (JPG, PNG) are accepted.`), false);
   }
 };
 

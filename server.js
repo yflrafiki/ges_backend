@@ -36,8 +36,11 @@ const reportRoutes = require('./src/routes/reportRoutes');
 const examRoutes = require('./src/routes/examRoutes');
 const changeRequestRoutes = require('./src/routes/changeRequestRoutes');
 const blockchainReferenceRoutes = require('./src/routes/blockchainReferenceRoutes');
+const blockchainUploadRoutes = require('./src/routes/blockchainUploadRoutes');
+const adminBlockchainRoutes = require('./src/routes/adminBlockchainRoutes');
 const notificationRoutes = require('./src/routes/notificationRoutes');
 const pushRoutes = require('./src/routes/pushRoutes');
+const aiRoutes = require('./src/routes/aiRoutes');
 const path = require('path')
 const pool = require('./src/config/db');
 const minio = require('./src/services/minioService');
@@ -110,8 +113,11 @@ app.use('/api/reports', reportRoutes);
 app.use('/api/exams', examRoutes);
 app.use('/api/change-requests', changeRequestRoutes);
 app.use('/api/blockchain', blockchainReferenceRoutes);
+app.use('/api/blockchain/upload', blockchainUploadRoutes);
+app.use('/api/admin', adminBlockchainRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/push', pushRoutes);
+app.use('/api/ai', aiRoutes);
 // Photos are served directly from MinIO (public bucket). No static middleware needed.
 // Documents stream through /api/documents/:id/file (authenticated).
 

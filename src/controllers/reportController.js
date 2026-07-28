@@ -107,6 +107,41 @@ const getDashboardSummary = async (req, res) => {
           ORDER BY count DESC
         `);
 
+    // Teachers by district (HR: within their region; admin: top 20 across all)
+    const teachersByDistrict = isHr
+      ? await pool.query(
+          `SELECT COALESCE(current_district, 'Unknown') AS current_district, COUNT(*) AS count
+           FROM teachers
+           WHERE current_region = $1
+           GROUP BY current_district
+           ORDER BY count DESC`,
+          [req.user.region]
+        )
+      : await pool.query(`
+          SELECT COALESCE(current_district, 'Unknown') AS current_district, COUNT(*) AS count
+          FROM teachers
+          GROUP BY current_district
+          ORDER BY count DESC
+          LIMIT 20
+        `);
+
+    // Teachers by qualification (HR scoped to their own region)
+    const teachersByQualification = isHr
+      ? await pool.query(
+          `SELECT COALESCE(qualification, 'Not specified') AS qualification, COUNT(*) AS count
+           FROM teachers
+           WHERE current_region = $1
+           GROUP BY qualification
+           ORDER BY count DESC`,
+          [req.user.region]
+        )
+      : await pool.query(`
+          SELECT COALESCE(qualification, 'Not specified') AS qualification, COUNT(*) AS count
+          FROM teachers
+          GROUP BY qualification
+          ORDER BY count DESC
+        `);
+
     // Recent applications (last 7 days), same region scoping as applicationsCount
     const recentApplications = isHr
       ? await pool.query(
@@ -129,13 +164,16 @@ const getDashboardSummary = async (req, res) => {
         total_hr_officers: parseInt(hrOfficersCount.rows[0].count),
         total_examiners: parseInt(examinersCount.rows[0].count),
         total_applications: parseInt(applicationsCount.rows[0].count),
-        recent_applications_7days: parseInt(recentApplications.rows[0].count)
+        recent_applications_7days: parseInt(recentApplications.rows[0].count),
+        region: req.user.region || null,
       },
       transfers: transferStats.rows,
       promotions: promotionStats.rows,
       credentials: credentialStats.rows,
       teachers_by_region: teachersByRegion.rows,
-      teachers_by_grade: teachersByGrade.rows
+      teachers_by_grade: teachersByGrade.rows,
+      teachers_by_district: teachersByDistrict.rows,
+      teachers_by_qualification: teachersByQualification.rows,
     });
 
   } catch (err) {
