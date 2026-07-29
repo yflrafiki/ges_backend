@@ -41,6 +41,7 @@ const adminBlockchainRoutes = require('./src/routes/adminBlockchainRoutes');
 const notificationRoutes = require('./src/routes/notificationRoutes');
 const pushRoutes = require('./src/routes/pushRoutes');
 const aiRoutes = require('./src/routes/aiRoutes');
+const staffingRoutes = require('./src/routes/staffingRoutes');
 const path = require('path')
 const pool = require('./src/config/db');
 const minio = require('./src/services/minioService');
@@ -118,6 +119,7 @@ app.use('/api/admin', adminBlockchainRoutes);
 app.use('/api/notifications', notificationRoutes);
 app.use('/api/push', pushRoutes);
 app.use('/api/ai', aiRoutes);
+app.use('/api/staffing', staffingRoutes);
 // Photos are served directly from MinIO (public bucket). No static middleware needed.
 // Documents stream through /api/documents/:id/file (authenticated).
 

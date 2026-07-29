@@ -153,13 +153,15 @@ const applyForPromotion = async (req, res) => {
       return res.status(400).json({ message: 'You already have a pending promotion application' });
     }
 
-    // Create application
+    // Create application — record from_grade so history always shows the
+    // grade transition even after the teacher has been promoted and their
+    // current_grade has moved on.
     const result = await pool.query(
-      `INSERT INTO applications 
-        (teacher_id, type, reason)
-       VALUES ($1, 'promotion', $2)
+      `INSERT INTO applications
+        (teacher_id, type, reason, from_grade)
+       VALUES ($1, 'promotion', $2, $3)
        RETURNING *`,
-      [teacher.id, reason]
+      [teacher.id, reason, teacher.current_grade]
     );
 
     // Audit log
@@ -222,10 +224,12 @@ const getMyPromotions = async (req, res) => {
       [teacherResult.rows[0].id]
     );
 
-    res.json({
-      count: result.rows.length,
-      applications: result.rows
-    });
+    const applications = result.rows.map(app => ({
+      ...app,
+      to_grade: app.from_grade ? getNextGrade(app.from_grade) : null,
+    }));
+
+    res.json({ count: applications.length, applications });
 
   } catch (err) {
     console.error(err);

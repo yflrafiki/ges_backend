@@ -112,6 +112,7 @@ CREATE TABLE IF NOT EXISTS applications (
   hr_notes TEXT,
   reviewed_by UUID REFERENCES users(id),
   reviewed_at TIMESTAMP,
+  from_grade VARCHAR(100),
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()
 );

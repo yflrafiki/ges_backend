@@ -170,6 +170,11 @@ ALTER TABLE users
 ALTER TABLE teachers
   ADD COLUMN IF NOT EXISTS promotion_eligibility_notified BOOLEAN DEFAULT false;
 
+-- Stores the teacher's grade at the time they applied for promotion, so
+-- the frontend can always show the grade transition (from → to) in history.
+ALTER TABLE applications
+  ADD COLUMN IF NOT EXISTS from_grade VARCHAR(100);
+
 -- Web Push subscriptions (one per browser/device a user has granted
 -- notification permission on) — lets the backend deliver a real OS-level
 -- notification even when the app isn't open, unlike the SSE stream which
