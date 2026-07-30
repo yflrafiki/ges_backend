@@ -2,7 +2,7 @@ const pool = require('../config/db');
 const fs = require('fs');
 const crypto = require('crypto');
 const minio = require('../services/minioService');
-const { notifyHrForRegion, notifyTeacher } = require('../services/notificationService');
+const { notifyUser, notifyHrForRegion, notifyTeacher } = require('../services/notificationService');
 
 const generateFileHash = (filePath) => {
   return new Promise((resolve, reject) => {
@@ -94,16 +94,20 @@ const createChangeRequest = async (req, res) => {
         `Teacher requested change to ${field_name}`]
     );
 
-    notifyHrForRegion(teacher.current_region, {
-      type: 'change_request',
-      title: 'New change request',
-      message: `${teacher.first_name} ${teacher.last_name} (${teacher.staff_id}) requested a change to their ${field_name.replace(/_/g, ' ')}.`,
-      link: '/hr/change-requests',
-      entityType: 'change_request',
-      entityId: result.rows[0].id,
-    });
+    // Notify all admins (change requests are reviewed by admins only, not HR)
+    const adminResult = await pool.query(`SELECT id FROM users WHERE role = 'admin'`);
+    await Promise.all(adminResult.rows.map((admin) =>
+      notifyUser(admin.id, {
+        type: 'change_request',
+        title: 'New change request',
+        message: `${teacher.first_name} ${teacher.last_name} (${teacher.staff_id}) from ${teacher.current_region} requested a change to their ${field_name.replace(/_/g, ' ')}.`,
+        link: '/admin/change-requests',
+        entityType: 'change_request',
+        entityId: result.rows[0].id,
+      })
+    ));
 
-    res.status(201).json({ message: 'Change request submitted for HR approval', request: result.rows[0] });
+    res.status(201).json({ message: 'Change request submitted for admin approval', request: result.rows[0] });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: 'Server error', error: err.message });
@@ -194,10 +198,6 @@ const reviewChangeRequest = async (req, res) => {
 
     if (changeRequest.status !== 'pending') {
       return res.status(400).json({ message: 'This request has already been reviewed' });
-    }
-
-    if (req.user.role === 'hr_officer' && changeRequest.current_region !== req.user.region) {
-      return res.status(403).json({ message: 'This request is outside your assigned region' });
     }
 
     if (status === 'approved') {

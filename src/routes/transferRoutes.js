@@ -20,6 +20,6 @@ router.get('/', protect, authorize('hr_officer', 'admin'), getAllTransfers);
 
 // Mixed access routes
 router.get('/:id', protect, authorize('teacher', 'hr_officer', 'admin'), getTransferById);
-router.put('/:id/review', protect, authorize('hr_officer', 'admin'), reviewTransfer);
+router.put('/:id/review', protect, authorize('hr_officer'), reviewTransfer);
 
 module.exports = router;

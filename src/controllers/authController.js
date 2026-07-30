@@ -48,7 +48,9 @@ const register = async (req, res) => {
     // Professional licensing & statutory
     ntc_license_number, nss_number, ssnit_number,
     // Academic qualifications
-    institution_attended, graduation_date, major_minor_courses, student_index_number,
+    institution_attended, graduation_date, major_minor_courses,
+    // Position / responsibility beyond rank
+    position,
     // Rank — years_in_current_rank is never accepted from the client; it's
     // derived from national_date_of_present_rank on every read instead.
     national_date_of_present_rank,
@@ -155,15 +157,15 @@ const register = async (req, res) => {
           ghana_card_number, ghana_card_issue_date, ghana_card_expiry_date,
           residential_address, ntc_license_number, nss_number, nss_certificate_path,
           ssnit_number, institution_attended, graduation_date, major_minor_courses,
-          student_index_number, degree_certificate_path, appointment_letter_path,
+          degree_certificate_path, appointment_letter_path,
           national_date_of_present_rank,
           date_of_first_appointment, date_of_confirmation,
           date_of_current_posting, employment_status,
-          disability_status, disability_type, date_of_birth)
+          disability_status, disability_type, date_of_birth, position)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,
                  $13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,
-                 $25,$26,$27,$28,$29,$30,$31,
-                 $32,$33,$34,$35,$36,$37,$38,$39)`,
+                 $25,$26,$27,$28,$29,$30,
+                 $31,$32,$33,$34,$35,$36,$37,$38,$39)`,
         [
           user.id,
           nullable(staff_id),
@@ -193,7 +195,6 @@ const register = async (req, res) => {
           nullable(institution_attended),
           nullable(graduation_date),
           nullable(major_minor_courses),
-          nullable(student_index_number),
           degree_certificate_path,
           appointment_letter_path,
           nullable(national_date_of_present_rank),
@@ -203,7 +204,8 @@ const register = async (req, res) => {
           nullable(employment_status) || 'active',
           disability_status === 'true' || disability_status === true || false,
           nullable(disability_type),
-          nullable(date_of_birth)
+          nullable(date_of_birth),
+          nullable(position)
         ]
       );
     }

@@ -79,6 +79,23 @@ const notifyHrForRegion = async (region, payload) => {
   }
 };
 
+// Notifies ONLY the HR officers in the given region — no admins.
+// Used for informational notifications (e.g. source HR told a teacher
+// has requested out) where admins don't need to act and would just get noise.
+const notifyHrOnlyForRegion = async (region, payload) => {
+  try {
+    const result = await pool.query(
+      `SELECT id FROM users WHERE role = 'hr_officer' AND region = $1`,
+      [region]
+    );
+    await Promise.all(result.rows.map((u) =>
+      notifyUser(u.id, { ...payload, link: linkForRole(payload.link, 'hr_officer') })
+    ));
+  } catch (err) {
+    console.error('Failed to notify source HR for region:', err.message);
+  }
+};
+
 // Notifies the teacher who owns a given teacher_id (looked up via their
 // user_id), e.g. when HR/admin reviews their application.
 const notifyTeacher = async (teacherId, payload) => {
@@ -92,6 +109,6 @@ const notifyTeacher = async (teacherId, payload) => {
 };
 
 module.exports = {
-  notifyUser, notifyHrForRegion, notifyTeacher,
+  notifyUser, notifyHrForRegion, notifyHrOnlyForRegion, notifyTeacher,
   registerSSEClient, unregisterSSEClient,
 };

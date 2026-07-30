@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS users (
   role VARCHAR(50) NOT NULL CHECK (role IN ('teacher', 'hr_officer', 'admin', 'examiner')),
   region VARCHAR(100),
   district VARCHAR(100),
+  full_name VARCHAR(255),
   email_verified BOOLEAN DEFAULT false,
   email_verification_token VARCHAR(255),
   email_verified_at TIMESTAMP,
@@ -44,6 +45,8 @@ CREATE TABLE IF NOT EXISTS teachers (
   marital_status VARCHAR(20),
   nationality VARCHAR(100),
   hometown VARCHAR(100),
+  house_number VARCHAR(50),
+  residential_address TEXT,
   national_date_of_present_rank DATE,
   years_in_current_rank INTEGER DEFAULT 0,
   date_of_first_appointment DATE,
@@ -53,10 +56,21 @@ CREATE TABLE IF NOT EXISTS teachers (
   disability_status BOOLEAN DEFAULT false,
   disability_type TEXT,
   passport_photo VARCHAR(500),
-  house_number VARCHAR(50),
   ghana_card_number VARCHAR(50) UNIQUE,
   ghana_card_issue_date DATE,
   ghana_card_expiry_date DATE,
+  ntc_license_number VARCHAR(50),
+  nss_number VARCHAR(50),
+  nss_certificate_path VARCHAR(500),
+  ssnit_number VARCHAR(50),
+  institution_attended VARCHAR(255),
+  graduation_date DATE,
+  major_minor_courses VARCHAR(255),
+  student_index_number VARCHAR(100),
+  degree_certificate_path VARCHAR(500),
+  appointment_letter_path VARCHAR(500),
+  promotion_eligibility_notified BOOLEAN DEFAULT false,
+  position VARCHAR(100),
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()
 );
@@ -71,7 +85,7 @@ CREATE TABLE IF NOT EXISTS teacher_education (
   created_at TIMESTAMP DEFAULT NOW()
 );
 
--- Teacher-requested edits to restricted fields, pending HR approval
+-- Teacher-requested edits to restricted fields, pending admin approval
 CREATE TABLE IF NOT EXISTS change_requests (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   teacher_id UUID REFERENCES teachers(id) ON DELETE CASCADE,
@@ -128,6 +142,7 @@ CREATE TABLE IF NOT EXISTS documents (
   ocr_extracted_text TEXT,
   ocr_validation TEXT,
   document_hash VARCHAR(64),
+  document_type VARCHAR(20) DEFAULT 'other',
   ocr_status VARCHAR(50) DEFAULT 'pending' CHECK (ocr_status IN ('pending', 'completed', 'failed')),
   uploaded_at TIMESTAMP DEFAULT NOW()
 );
@@ -136,7 +151,7 @@ CREATE TABLE IF NOT EXISTS documents (
 CREATE TABLE IF NOT EXISTS credentials (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   teacher_id UUID REFERENCES teachers(id),
-  document_id UUID REFERENCES documents(id),
+  document_id UUID REFERENCES documents(id) UNIQUE,
   document_hash VARCHAR(500),
   blockchain_tx_id VARCHAR(500),
   verification_status VARCHAR(50) DEFAULT 'unverified' CHECK (verification_status IN ('unverified', 'verified', 'failed')),
@@ -171,6 +186,7 @@ CREATE TABLE IF NOT EXISTS promotion_documents (
   exam_access_granted BOOLEAN DEFAULT false,
   reviewed_by UUID REFERENCES users(id),
   reviewed_at TIMESTAMP,
+  submission_attempts INTEGER DEFAULT 0,
   created_at TIMESTAMP DEFAULT NOW(),
   updated_at TIMESTAMP DEFAULT NOW()
 );
@@ -192,6 +208,32 @@ CREATE TABLE IF NOT EXISTS blockchain_references (
   uploaded_by UUID REFERENCES users(id),
   created_at TIMESTAMP DEFAULT NOW()
 );
+
+-- In-app notifications (SSE stream + bell badge)
+CREATE TABLE IF NOT EXISTS notifications (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+  type VARCHAR(50) NOT NULL,
+  title VARCHAR(255) NOT NULL,
+  message TEXT,
+  link VARCHAR(255),
+  entity_type VARCHAR(50),
+  entity_id UUID,
+  read BOOLEAN DEFAULT false,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_notifications_user_unread ON notifications(user_id, read);
+
+-- Web Push subscriptions (one per browser/device)
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES users(id) ON DELETE CASCADE,
+  endpoint TEXT NOT NULL UNIQUE,
+  p256dh VARCHAR(255) NOT NULL,
+  auth VARCHAR(255) NOT NULL,
+  created_at TIMESTAMP DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user ON push_subscriptions(user_id);
 
 -- Exam management tables
 CREATE TABLE IF NOT EXISTS exams (

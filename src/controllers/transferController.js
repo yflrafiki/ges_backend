@@ -1,5 +1,5 @@
 const pool = require('../config/db');
-const { notifyHrForRegion, notifyTeacher } = require('../services/notificationService');
+const { notifyHrForRegion, notifyHrOnlyForRegion, notifyTeacher } = require('../services/notificationService');
 
 // @route  POST /api/transfers
 // @access Teacher only
@@ -49,6 +49,7 @@ const createTransfer = async (req, res) => {
       [req.user.id, 'CREATE_TRANSFER', 'applications', result.rows[0].id, 'Teacher submitted transfer application']
     );
 
+    // Notify destination HR (and admins) — they need to review and act.
     notifyHrForRegion(requested_region, {
       type: 'transfer_request',
       title: 'New transfer request',
@@ -57,6 +58,18 @@ const createTransfer = async (req, res) => {
       entityType: 'application',
       entityId: result.rows[0].id,
     });
+
+    // Notify source HR (info only — they cannot review, just need to know).
+    if (teacher.current_region && teacher.current_region !== requested_region) {
+      notifyHrOnlyForRegion(teacher.current_region, {
+        type: 'transfer_outgoing',
+        title: 'Teacher requesting outgoing transfer',
+        message: `${teacher.first_name} ${teacher.last_name} (${teacher.staff_id}) has submitted a transfer request to ${requested_district}, ${requested_region}.`,
+        link: '/hr/transfers',
+        entityType: 'application',
+        entityId: result.rows[0].id,
+      });
+    }
 
     res.status(201).json({
       message: 'Transfer application submitted successfully',
@@ -119,6 +132,8 @@ const getAllTransfers = async (req, res) => {
       SELECT a.*,
         t.first_name, t.last_name, t.staff_id,
         t.current_school, t.current_district, t.current_region,
+        t.current_grade, t.qualification, t.subject_specialization,
+        t.date_of_first_appointment, t.gender, t.phone,
         u.email as reviewed_by_email
        FROM applications a
        JOIN teachers t ON a.teacher_id = t.id
@@ -168,9 +183,11 @@ const getAllTransfers = async (req, res) => {
 const getTransferById = async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT a.*, 
+      `SELECT a.*,
         t.first_name, t.last_name, t.staff_id,
         t.current_school, t.current_district, t.current_region,
+        t.current_grade, t.qualification, t.subject_specialization,
+        t.date_of_first_appointment, t.gender, t.phone,
         u.email as reviewed_by_email
        FROM applications a
        JOIN teachers t ON a.teacher_id = t.id

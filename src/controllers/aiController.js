@@ -1,4 +1,6 @@
 const Groq = require('groq-sdk');
+const pool = require('../config/db');
+const { computeYearsOfService } = require('../services/rankService');
 
 const GES_CONTEXT = `
 You are an AI assistant built into the Ghana Education Service (GES) Management System.
@@ -170,4 +172,72 @@ const chat = async (req, res) => {
   }
 };
 
-module.exports = { chat };
+// @route  POST /api/ai/transfer-summary
+// @access HR Officer only
+const transferSummary = async (req, res) => {
+  const { transfer_id } = req.body;
+
+  if (!process.env.GROQ_API_KEY) {
+    return res.status(503).json({ message: 'AI service is not configured.' });
+  }
+  if (!transfer_id) {
+    return res.status(400).json({ message: 'transfer_id is required' });
+  }
+
+  try {
+    const result = await pool.query(
+      `SELECT a.reason, a.requested_district, a.requested_region, a.created_at,
+              t.first_name, t.last_name, t.staff_id, t.gender,
+              t.current_grade, t.qualification, t.subject_specialization,
+              t.current_school, t.current_district, t.current_region,
+              t.date_of_first_appointment, t.national_date_of_present_rank,
+              t.ntc_license_number, t.employment_status, t.position
+       FROM applications a
+       JOIN teachers t ON a.teacher_id = t.id
+       WHERE a.id = $1 AND a.type = 'transfer'`,
+      [transfer_id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ message: 'Transfer not found' });
+    }
+
+    const r = result.rows[0];
+    const yearsOfService = computeYearsOfService(r.date_of_first_appointment);
+    const yearsInRank = computeYearsOfService(r.national_date_of_present_rank);
+
+    const prompt = `You are a GES HR briefing assistant. Summarise the following transfer request in clear, professional bullet points for the reviewing HR officer. Be concise and highlight anything noteworthy.
+
+TEACHER: ${r.first_name} ${r.last_name} (${r.staff_id}), ${r.gender || 'N/A'}
+GRADE: ${r.current_grade || 'N/A'} | QUALIFICATION: ${r.qualification || 'N/A'} | SUBJECT: ${r.subject_specialization || 'N/A'}
+POSITION/ROLE: ${r.position || 'None'}
+YEARS OF SERVICE: ${yearsOfService ?? 'Unknown'} | YEARS IN CURRENT RANK: ${yearsInRank ?? 'Unknown'}
+NTC LICENSE: ${r.ntc_license_number ? 'On file' : 'Not on file'}
+EMPLOYMENT STATUS: ${r.employment_status || 'active'}
+CURRENT POSTING: ${r.current_school}, ${r.current_district}, ${r.current_region}
+REQUESTING TRANSFER TO: ${r.requested_district}, ${r.requested_region}
+REASON GIVEN: ${r.reason}
+SUBMITTED: ${new Date(r.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}
+
+Write a 4–6 bullet-point HR briefing covering: teacher background, current posting, reason for transfer, any notable factors (NTC status, years in rank, position held), and a neutral recommendation note.`;
+
+    const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+    const completion = await groq.chat.completions.create({
+      model: 'llama-3.3-70b-versatile',
+      messages: [
+        { role: 'system', content: `${GES_CONTEXT}\nYou are a concise HR briefing assistant. Respond only with bullet points. No preamble, no conclusion paragraph.` },
+        { role: 'user', content: prompt },
+      ],
+      stream: false,
+    });
+
+    const summary = completion.choices[0]?.message?.content || 'Could not generate summary.';
+    res.json({ summary });
+
+  } catch (err) {
+    console.error('[AI:transferSummary]', err.message);
+    res.status(500).json({ message: 'AI service error', error: err.message });
+  }
+};
+
+module.exports = { chat, transferSummary };

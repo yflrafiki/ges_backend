@@ -45,7 +45,7 @@ const getMyProfile = async (req, res) => {
 // Teachers may only self-edit phone and marital_status directly (plus their passport photo).
 // Every other field requires a change request reviewed by HR — see changeRequestController.js.
 const updateMyProfile = async (req, res) => {
-  const { phone, marital_status } = req.body;
+  const { phone, marital_status, hometown } = req.body;
 
   try {
     const current = await pool.query(
@@ -59,8 +59,8 @@ const updateMyProfile = async (req, res) => {
 
     const teacher = current.rows[0];
 
-    // Track changes
-    const fields = { phone, marital_status };
+    // Track changes for auditable fields
+    const fields = { phone, marital_status, hometown };
 
     for (const [field, newValue] of Object.entries(fields)) {
       if (newValue !== undefined && String(newValue) !== String(teacher[field])) {
@@ -86,16 +86,17 @@ const updateMyProfile = async (req, res) => {
       `UPDATE teachers SET
         phone = COALESCE($1, phone),
         marital_status = COALESCE($2, marital_status),
-        passport_photo = COALESCE($3, passport_photo),
+        hometown = COALESCE($3, hometown),
+        passport_photo = COALESCE($4, passport_photo),
         updated_at = NOW()
-       WHERE user_id = $4
+       WHERE user_id = $5
        RETURNING *`,
-      [phone, marital_status, passport_photo, req.user.id]
+      [phone, marital_status, hometown, passport_photo, req.user.id]
     );
 
     await pool.query(
       'INSERT INTO audit_logs (user_id, action, entity, entity_id, details) VALUES ($1,$2,$3,$4,$5)',
-      [req.user.id, 'UPDATE_PROFILE', 'teachers', teacher.id, 'Teacher updated phone/marital status/photo']
+      [req.user.id, 'UPDATE_PROFILE', 'teachers', teacher.id, 'Teacher updated profile']
     );
 
     const updatedTeacher = updated.rows[0];

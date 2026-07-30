@@ -188,3 +188,8 @@ CREATE TABLE IF NOT EXISTS push_subscriptions (
   created_at TIMESTAMP DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user ON push_subscriptions(user_id);
+
+-- Position/responsibility a teacher holds beyond their rank
+-- (e.g. Headmaster, Deputy Headmaster, Circuit Supervisor).
+ALTER TABLE teachers
+  ADD COLUMN IF NOT EXISTS position VARCHAR(100);
